@@ -32,7 +32,7 @@ export type DebugState = {
   deadWarriors: number;
   deadGatherers: number;
   gameOver: boolean;
-  runPhase: "running" | "upgrade" | "gameOver";
+  runPhase: "running" | "resurrection" | "upgrade" | "gameOver";
   runTimeRemaining: number;
   runCompleted: boolean;
 };

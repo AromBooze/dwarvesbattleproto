@@ -13,7 +13,7 @@ The player commands two groups using a directional gaze cone from the cart:
 - **Warriors** attack wolves.
 - **Gatherers** collect wood and ore.
 
-Between successful runs, the player spends resources on upgrades.
+Between successful runs, the player may resurrect dead units, then spends resources on upgrades.
 
 ## 2. Prototype Visual Direction
 
@@ -70,10 +70,12 @@ Current art style target: **Simple NES-inspired pixel art**.
 4. Player commands gatherers and warriors using gaze direction.
 5. Player survives until the run timer ends.
 6. If the cart survives, remaining resources/wolves are cleared.
-7. Dead warriors/gatherers are restored.
-8. Cart and units are fully healed.
-9. Player spends wood/ore on upgrades.
-10. Player starts the next run.
+7. Living warriors/gatherers and the cart are fully healed.
+8. If any units died, the resurrection screen opens.
+9. Player may spend wood/ore to resurrect dead units from the completed run.
+10. Unresurrected dead units are permanently lost when the player continues.
+11. Player spends wood/ore on upgrades.
+12. Player starts the next run.
 
 Current note: next-run difficulty scaling is **not implemented yet**.
 
@@ -82,7 +84,8 @@ Current note: next-run difficulty scaling is **not implemented yet**.
 | Condition | Current Behavior |
 |---|---|
 | Cart HP <= 0 | Run phase becomes `gameOver`; spawning and simulation stop. |
-| Timer reaches 0 while cart HP > 0 | Run completes; upgrade screen opens. |
+| Timer reaches 0 while cart HP > 0 and units died | Run completes; resurrection screen opens. |
+| Timer reaches 0 while cart HP > 0 and no units died | Run completes; upgrade screen opens. |
 | Final victory | Not implemented. Game is intended to be endless. |
 
 ## 5. Run Duration and Timer
@@ -93,7 +96,8 @@ Current note: next-run difficulty scaling is **not implemented yet**.
 | Timer display | `M:SS` countdown | React UI |
 | World scroll speed | 1 screen width per 16 seconds | `WORLD_SCROLL_SECONDS_PER_SCREEN` |
 | Scroll speed formula | `screenWidth / WORLD_SCROLL_SECONDS_PER_SCREEN` | engine |
-| Between-run upgrade phase | yes, on successful run only | engine |
+| Between-run resurrection phase | yes, on successful run only if units died | engine |
+| Between-run upgrade phase | yes, after resurrection or immediately if no units died | engine |
 | Difficulty scaling | not implemented | TODO |
 
 When the run completes successfully:
@@ -101,10 +105,11 @@ When the run completes successfully:
 - spawning stops;
 - active combat/gathering stops because world entities are cleared;
 - remaining wolves/resources/death effects are removed from screen;
-- dead units are restored;
-- cart, warriors, and gatherers are healed;
+- dead units are held for optional resurrection;
+- living warriors/gatherers and cart are healed;
 - resources and purchased upgrades persist;
-- upgrade screen opens.
+- resurrection screen opens if any unit died;
+- upgrade screen opens immediately if no units died.
 
 ## 6. Cart Stats and Upgrades
 
@@ -160,7 +165,7 @@ Hired warriors are added to the next run and use generated extra formation slots
 | `movingToWolf` | Moving toward assigned wolf. |
 | `engaged` | Locked to wolf via world-attached combat anchor. |
 | `returning` | Moving back to formation. |
-| `dead` | Removed from active unit play until successful run completion. |
+| `dead` | Removed from active unit play; may be resurrected after successful run only. |
 
 ### Warrior Upgrades
 
@@ -200,7 +205,7 @@ Hired gatherers are added to the next run and use generated extra formation slot
 | `gathering` | Gathering assigned resource. |
 | `fleeing` | Returning toward formation after wolf targeting/attack. |
 | `returning` | Moving back to formation. |
-| `dead` | Removed from active unit play until successful run completion. |
+| `dead` | Removed from active unit play; may be resurrected after successful run only. |
 
 ### Gatherer Upgrades
 
@@ -359,7 +364,46 @@ TODO:
 
 Available units are units in `formation` or `returning`.
 
-## 12. Upgrade Costs and Cost Scaling
+## 12. Post-Run Resurrection Phase
+
+Resurrection definitions are in `src/config/balance/resurrection.ts`.
+
+The resurrection phase happens only after a successful run, and only if at least one warrior or gatherer died during that run. If no units died, the game skips directly to the upgrade screen.
+
+### Resurrection Cost
+
+| Parameter | Current Value | Source |
+|---|---:|---|
+| Wood cost per resurrected unit | 2 | `RESURRECTION_WOOD_COST` |
+| Ore cost per resurrected unit | 2 | `RESURRECTION_ORE_COST` |
+| Cost scaling | none | implementation |
+
+### Resurrection Rules
+
+| Rule | Current Implementation |
+|---|---|
+| Eligible warriors | Only warriors that died during the previous successful run. |
+| Eligible gatherers | Only gatherers that died during the previous successful run. |
+| Resurrect limit | Cannot resurrect more units than died. |
+| Resurrected unit state | Alive, fully healed, formation-ready. |
+| Unresurrected dead units | Permanently removed when player continues to upgrade screen. |
+| Game over | No resurrection phase after losing. |
+| Cannot afford | Button disabled with `Недостаточно ресурсов`. |
+| No dead unit of type remains | Button disabled with `Некого воскрешать`. |
+
+### Resurrection Screen UI
+
+| UI Element | Current Text / Value |
+|---|---|
+| Title | `Воскресите пораженных гномов` |
+| Warrior button | `Воскресить воина` |
+| Gatherer button | `Воскресить собирателя` |
+| Continue button | `Далее` |
+| Resource display | current wood and ore |
+| Counters | dead warriors, dead gatherers, resurrected warriors, resurrected gatherers |
+| Cost display | 2 wood + 2 ore per resurrection |
+
+## 13. Upgrade Costs and Cost Scaling
 
 Upgrade definitions are in `src/config/balance/upgrades.ts`.
 
@@ -383,7 +427,7 @@ Upgrade button disabled reasons:
 | Not enough resources | `Недостаточно ресурсов` |
 | Max value reached | `Максимум` |
 
-## 13. Current Implementation Status
+## 14. Current Implementation Status
 
 ### Implemented
 
@@ -406,7 +450,8 @@ Upgrade button disabled reasons:
 | World-attached combat anchors | Implemented |
 | Run timer | Implemented |
 | Successful run completion transition | Implemented |
-| Between-run restoration | Implemented |
+| Post-run resurrection screen | Implemented |
+| Survivor/cart healing after successful run | Implemented |
 | Upgrade screen | Implemented |
 | Upgrade purchases and cost scaling | Implemented |
 | Hiring extra warriors/gatherers | Implemented |
@@ -438,7 +483,7 @@ Upgrade button disabled reasons:
 | More enemy/resource types | Not implemented. |
 | Final victory/final boss | Not implemented. |
 
-## 14. Current MVP Scope
+## 15. Current MVP Scope
 
 Current MVP includes:
 
@@ -452,7 +497,9 @@ Current MVP includes:
 - basic combat;
 - cart death/game-over run phase;
 - 60-second run timer;
-- successful run completion and upgrade screen;
+- successful run completion;
+- post-run resurrection screen;
+- upgrade screen;
 - upgrade purchasing and next-run start.
 
 Current MVP intentionally does **not** include:
@@ -465,7 +512,7 @@ Current MVP intentionally does **not** include:
 - audio;
 - animation frames.
 
-## 15. Technical Direction for Codex
+## 16. Technical Direction for Codex
 
 Current stack:
 
@@ -497,13 +544,14 @@ src/
 
 Keep gameplay values in config files when possible. If a value is currently hardcoded in implementation, either move it to config in a future code task or document it as an implementation constant.
 
-## 16. Current Balance Config Files
+## 17. Current Balance Config Files
 
 ```text
 src/config/balance/cart.ts
 src/config/balance/gatherers.ts
 src/config/balance/input.ts
 src/config/balance/resources.ts
+src/config/balance/resurrection.ts
 src/config/balance/run.ts
 src/config/balance/spawn.ts
 src/config/balance/upgrades.ts
@@ -511,13 +559,13 @@ src/config/balance/warriors.ts
 src/config/balance/wolves.ts
 ```
 
-## 17. Key TODOs / Open Questions
+## 18. Key TODOs / Open Questions
 
 1. What are the max values for warrior/gatherer stat upgrades?
 2. What is the maximum number of warriors/gatherers?
 3. Should wolves have a finite target acquisition radius?
 4. Should wolves despawn if they leave the left side after future AI changes?
 5. Should gatherers auto-retarget nearby resources after depletion/despawn?
-6. Should dead units be restored after game over, or only after successful runs?
+6. Should unresurrected permanently lost units be represented in any long-term memorial/stat UI?
 7. Should a dedicated game-over screen and restart flow be added next?
 8. Should difficulty scaling values from older design notes be reintroduced as config?

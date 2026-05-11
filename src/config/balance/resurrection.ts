@@ -1,0 +1,2 @@
+export const RESURRECTION_WOOD_COST = 2;
+export const RESURRECTION_ORE_COST = 2;

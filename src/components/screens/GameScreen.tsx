@@ -5,6 +5,7 @@ import { ResourceOverlay } from "../ui/ResourceOverlay";
 import { TimerOverlay } from "../ui/TimerOverlay";
 import { defaultDebugState } from "../../game/state/debugState";
 import { defaultUpgradeState } from "../../game/state/upgradeState";
+import { ResurrectionScreen } from "./ResurrectionScreen";
 import { UpgradeScreen } from "./UpgradeScreen";
 
 export function GameScreen() {
@@ -51,6 +52,14 @@ export function GameScreen() {
           state={upgrades}
           onBuyUpgrade={(id) => engineRef.current?.buyUpgrade(id)}
           onStartNextRun={() => engineRef.current?.startNextRun()}
+        />
+      ) : null}
+      {upgrades.phase === "resurrection" ? (
+        <ResurrectionScreen
+          state={upgrades}
+          onResurrectWarrior={() => engineRef.current?.resurrectWarrior()}
+          onResurrectGatherer={() => engineRef.current?.resurrectGatherer()}
+          onContinue={() => engineRef.current?.continueToUpgrade()}
         />
       ) : null}
     </main>

@@ -20,6 +20,10 @@ import {
   GAZE_CONE_ANGLE_DEGREES,
   GAZE_CONE_LENGTH_MULTIPLIER,
 } from "../../config/balance/input";
+import {
+  RESURRECTION_ORE_COST,
+  RESURRECTION_WOOD_COST,
+} from "../../config/balance/resurrection";
 import { RUN_DURATION_SECONDS, WORLD_SCROLL_SECONDS_PER_SCREEN } from "../../config/balance/run";
 import {
   UPGRADE_DEFINITIONS,
@@ -62,7 +66,7 @@ import type { ResourceEntity, WolfEntity } from "../entities/worldEntities";
 
 type DebugListener = (state: DebugState) => void;
 type UpgradeListener = (state: UpgradeState) => void;
-type RunPhase = "running" | "upgrade" | "gameOver";
+type RunPhase = "running" | "resurrection" | "upgrade" | "gameOver";
 
 const GRID_SIZE = 32;
 const UNIT_ARRIVAL_DISTANCE = 14;
@@ -142,6 +146,10 @@ export class BattleCartEngine {
   private gameOver = false;
   private deadWarriors = 0;
   private deadGatherers = 0;
+  private previousRunDeadWarriors = 0;
+  private previousRunDeadGatherers = 0;
+  private resurrectedWarriors = 0;
+  private resurrectedGatherers = 0;
   private gatheredResource = "none";
   private scrollOffset = 0;
   private elapsedTime = 0;
@@ -228,7 +236,63 @@ export class BattleCartEngine {
     this.ore -= cost.ore ?? 0;
     this.upgradePurchases.set(upgradeId, (this.upgradePurchases.get(upgradeId) ?? 0) + 1);
     this.applyUpgrade(upgradeId);
-    this.restoreForBetweenRun();
+    this.healLivingForBetweenRun();
+    this.publishUpgradeState();
+    this.publishDebug(this.getScrollSpeed());
+  }
+
+  resurrectWarrior() {
+    if (this.runPhase !== "resurrection" || !this.canResurrectWarrior()) {
+      this.publishUpgradeState();
+      return;
+    }
+
+    const warrior = this.warriors.find((unit) => unit.state === "dead");
+
+    if (!warrior) {
+      this.publishUpgradeState();
+      return;
+    }
+
+    this.payResurrectionCost();
+    this.reviveWarrior(warrior);
+    this.resurrectedWarriors += 1;
+    this.lastAssignmentResult = "warrior resurrected";
+    this.publishUpgradeState();
+    this.publishDebug(this.getScrollSpeed());
+  }
+
+  resurrectGatherer() {
+    if (this.runPhase !== "resurrection" || !this.canResurrectGatherer()) {
+      this.publishUpgradeState();
+      return;
+    }
+
+    const gatherer = this.gatherers.find((unit) => unit.state === "dead");
+
+    if (!gatherer) {
+      this.publishUpgradeState();
+      return;
+    }
+
+    this.payResurrectionCost();
+    this.reviveGatherer(gatherer);
+    this.resurrectedGatherers += 1;
+    this.lastAssignmentResult = "gatherer resurrected";
+    this.publishUpgradeState();
+    this.publishDebug(this.getScrollSpeed());
+  }
+
+  continueToUpgrade() {
+    if (this.runPhase !== "resurrection") {
+      return;
+    }
+
+    this.removeUnresurrectedUnits();
+    this.runPhase = "upgrade";
+    this.lastAssignmentResult = "upgrade phase";
+    this.createStaticScene();
+    this.layoutScene();
     this.publishUpgradeState();
     this.publishDebug(this.getScrollSpeed());
   }
@@ -242,14 +306,13 @@ export class BattleCartEngine {
     this.runTimeRemaining = RUN_DURATION_SECONDS;
     this.runCompleted = false;
     this.gameOver = false;
-    this.deadWarriors = 0;
-    this.deadGatherers = 0;
+    this.resetRunDeathCounters();
     this.targetsInsideCone = 0;
     this.selectedTarget = "none";
     this.selectedTargetId = null;
     this.lastAssignmentResult = "next run started";
     this.spawnSystem?.clearWorld();
-    this.restoreForBetweenRun();
+    this.healLivingForBetweenRun();
     this.createStaticScene();
     this.layoutScene();
     this.publishUpgradeState();
@@ -1373,25 +1436,39 @@ export class BattleCartEngine {
   }
 
   private completeRun() {
-    this.runPhase = "upgrade";
     this.runCompleted = true;
     this.lastAssignmentResult = "run completed";
     this.currentMode = "default";
     this.targetsInsideCone = 0;
     this.selectedTarget = "none";
     this.selectedTargetId = null;
+    this.previousRunDeadWarriors = this.deadWarriors;
+    this.previousRunDeadGatherers = this.deadGatherers;
+    this.resurrectedWarriors = 0;
+    this.resurrectedGatherers = 0;
     this.spawnSystem?.clearWorld();
-    this.restoreForBetweenRun();
-    this.createStaticScene();
-    this.layoutScene();
+    this.healLivingForBetweenRun();
+
+    if (this.previousRunDeadWarriors + this.previousRunDeadGatherers > 0) {
+      this.runPhase = "resurrection";
+    } else {
+      this.runPhase = "upgrade";
+      this.createStaticScene();
+      this.layoutScene();
+    }
+
     this.publishUpgradeState();
   }
 
-  private restoreForBetweenRun() {
+  private healLivingForBetweenRun() {
     this.cartHp = this.cartMaxHp;
     this.cartFlashUntil = 0;
 
     for (const warrior of this.warriors) {
+      if (warrior.state === "dead") {
+        continue;
+      }
+
       warrior.hp = this.warriorMaxHp;
       warrior.maxHp = this.warriorMaxHp;
       warrior.attackCooldown = 0;
@@ -1405,6 +1482,10 @@ export class BattleCartEngine {
     }
 
     for (const gatherer of this.gatherers) {
+      if (gatherer.state === "dead") {
+        continue;
+      }
+
       gatherer.hp = this.gathererMaxHp;
       gatherer.maxHp = this.gathererMaxHp;
       gatherer.attackCooldown = 0;
@@ -1416,6 +1497,84 @@ export class BattleCartEngine {
       gatherer.sprite.texture = this.textures?.gatherer ?? gatherer.sprite.texture;
       gatherer.marker.visible = false;
     }
+  }
+
+  private canResurrectWarrior() {
+    return this.warriors.some((unit) => unit.state === "dead") && this.canAfford(this.getResurrectionCost());
+  }
+
+  private canResurrectGatherer() {
+    return this.gatherers.some((unit) => unit.state === "dead") && this.canAfford(this.getResurrectionCost());
+  }
+
+  private getResurrectionCost(): ResourceCost {
+    return {
+      wood: RESURRECTION_WOOD_COST,
+      ore: RESURRECTION_ORE_COST,
+    };
+  }
+
+  private payResurrectionCost() {
+    this.wood -= RESURRECTION_WOOD_COST;
+    this.ore -= RESURRECTION_ORE_COST;
+  }
+
+  private reviveWarrior(warrior: WarriorUnit) {
+    warrior.hp = this.warriorMaxHp;
+    warrior.maxHp = this.warriorMaxHp;
+    warrior.attackCooldown = 0;
+    warrior.flashUntil = 0;
+    warrior.combatAnchor = null;
+    warrior.state = "formation";
+    warrior.targetId = null;
+    warrior.sprite.visible = true;
+    warrior.sprite.texture = this.textures?.warrior ?? warrior.sprite.texture;
+    warrior.marker.visible = false;
+  }
+
+  private reviveGatherer(gatherer: GathererUnit) {
+    gatherer.hp = this.gathererMaxHp;
+    gatherer.maxHp = this.gathererMaxHp;
+    gatherer.attackCooldown = 0;
+    gatherer.flashUntil = 0;
+    gatherer.combatAnchor = null;
+    gatherer.state = "formation";
+    gatherer.targetId = null;
+    gatherer.sprite.visible = true;
+    gatherer.sprite.texture = this.textures?.gatherer ?? gatherer.sprite.texture;
+    gatherer.marker.visible = false;
+  }
+
+  private removeUnresurrectedUnits() {
+    this.warriors = this.warriors.filter((warrior) => {
+      if (warrior.state !== "dead") {
+        return true;
+      }
+
+      warrior.marker.destroy();
+      warrior.sprite.destroy();
+      return false;
+    });
+    this.gatherers = this.gatherers.filter((gatherer) => {
+      if (gatherer.state !== "dead") {
+        return true;
+      }
+
+      gatherer.marker.destroy();
+      gatherer.sprite.destroy();
+      return false;
+    });
+    this.warriorCount = this.warriors.length;
+    this.gathererCount = this.gatherers.length;
+  }
+
+  private resetRunDeathCounters() {
+    this.deadWarriors = 0;
+    this.deadGatherers = 0;
+    this.previousRunDeadWarriors = 0;
+    this.previousRunDeadGatherers = 0;
+    this.resurrectedWarriors = 0;
+    this.resurrectedGatherers = 0;
   }
 
   private applyUpgrade(upgradeId: UpgradeId) {
@@ -1521,6 +1680,17 @@ export class BattleCartEngine {
       phase: this.runPhase,
       wood: Math.floor(this.wood),
       ore: Math.floor(this.ore),
+      resurrection: {
+        deadWarriors: this.previousRunDeadWarriors,
+        deadGatherers: this.previousRunDeadGatherers,
+        resurrectedWarriors: this.resurrectedWarriors,
+        resurrectedGatherers: this.resurrectedGatherers,
+        cost: this.getResurrectionCost(),
+        canResurrectWarrior: this.canResurrectWarrior(),
+        canResurrectGatherer: this.canResurrectGatherer(),
+        warriorDisabledReason: this.getResurrectionDisabledReason("warrior"),
+        gathererDisabledReason: this.getResurrectionDisabledReason("gatherer"),
+      },
       cart: {
         hp: Math.ceil(this.cartHp),
         maxHp: this.cartMaxHp,
@@ -1556,6 +1726,22 @@ export class BattleCartEngine {
         };
       }),
     });
+  }
+
+  private getResurrectionDisabledReason(kind: "warrior" | "gatherer") {
+    const hasDeadUnit = kind === "warrior"
+      ? this.warriors.some((unit) => unit.state === "dead")
+      : this.gatherers.some((unit) => unit.state === "dead");
+
+    if (!hasDeadUnit) {
+      return "Некого воскрешать";
+    }
+
+    if (!this.canAfford(this.getResurrectionCost())) {
+      return "Недостаточно ресурсов";
+    }
+
+    return null;
   }
 
   private bumpSprite(sprite: Sprite, _xOffset: number) {

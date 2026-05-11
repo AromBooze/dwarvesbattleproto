@@ -11,9 +11,20 @@ export type UpgradeButtonState = {
 };
 
 export type UpgradeState = {
-  phase: "running" | "upgrade" | "gameOver";
+  phase: "running" | "resurrection" | "upgrade" | "gameOver";
   wood: number;
   ore: number;
+  resurrection: {
+    deadWarriors: number;
+    deadGatherers: number;
+    resurrectedWarriors: number;
+    resurrectedGatherers: number;
+    cost: ResourceCost;
+    canResurrectWarrior: boolean;
+    canResurrectGatherer: boolean;
+    warriorDisabledReason: "Недостаточно ресурсов" | "Некого воскрешать" | null;
+    gathererDisabledReason: "Недостаточно ресурсов" | "Некого воскрешать" | null;
+  };
   cart: {
     hp: number;
     maxHp: number;
@@ -46,9 +57,20 @@ export const defaultUpgradeState: UpgradeState = {
     armor: 0,
     spikes: 0,
   },
+  resurrection: {
+    deadWarriors: 0,
+    deadGatherers: 0,
+    resurrectedWarriors: 0,
+    resurrectedGatherers: 0,
+    cost: { wood: 2, ore: 2 },
+    canResurrectWarrior: false,
+    canResurrectGatherer: false,
+    warriorDisabledReason: "Некого воскрешать",
+    gathererDisabledReason: "Некого воскрешать",
+  },
   warriors: {
     count: 5,
-    hp: 5,
+    hp: 7,
     damage: 2,
     attackSpeed: 2,
     regeneration: 0,
