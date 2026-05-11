@@ -14,6 +14,7 @@ import {
 import {
   GATHERER_BASE_HP,
   GATHERER_GATHERING_RATE_PER_SECOND,
+  GATHERER_REGENERATION_PER_SECOND,
   GATHERER_RUN_SPEED_MULTIPLIER,
 } from "../../config/balance/gatherers";
 import {
@@ -48,6 +49,7 @@ import {
   WARRIOR_ATTACKS_PER_SECOND,
   WARRIOR_BASE_HP,
   WARRIOR_DAMAGE,
+  WARRIOR_REGENERATION_PER_SECOND,
   WARRIOR_RUN_SPEED_MULTIPLIER,
 } from "../../config/balance/warriors";
 import {
@@ -116,6 +118,7 @@ type UnitBase<TState extends string> = {
   attackCooldown: number;
   flashUntil: number;
   combatAnchor: Point | null;
+  regenerationAccumulator: number;
 };
 
 type WarriorUnit = UnitBase<WarriorState>;
@@ -161,11 +164,11 @@ export class BattleCartEngine {
   private warriorMaxHp = WARRIOR_BASE_HP;
   private warriorDamage = WARRIOR_DAMAGE;
   private warriorAttackSpeed = WARRIOR_ATTACKS_PER_SECOND;
-  private warriorRegeneration = 0;
+  private warriorRegeneration = WARRIOR_REGENERATION_PER_SECOND;
   private gathererCount = gathererFormation.length;
   private gathererMaxHp = GATHERER_BASE_HP;
   private gathererGatheringRate = GATHERER_GATHERING_RATE_PER_SECOND;
-  private gathererRegeneration = 0;
+  private gathererRegeneration = GATHERER_REGENERATION_PER_SECOND;
   private wolfHpBonus = 0;
   private wolfDamageBonus = 0;
   private wolfAttackSpeedBonus = 0;
@@ -425,6 +428,7 @@ export class BattleCartEngine {
         attackCooldown: 0,
         flashUntil: 0,
         combatAnchor: null,
+        regenerationAccumulator: 0,
       });
       this.spritesLayer.addChild(warrior);
       this.spritesLayer.addChild(hpBar);
@@ -449,6 +453,7 @@ export class BattleCartEngine {
         attackCooldown: 0,
         flashUntil: 0,
         combatAnchor: null,
+        regenerationAccumulator: 0,
       });
       this.spritesLayer.addChild(gatherer);
       this.spritesLayer.addChild(hpBar);
@@ -1392,10 +1397,20 @@ export class BattleCartEngine {
     deltaSeconds: number,
   ) {
     if (regeneration <= 0 || unit.hp >= unit.maxHp) {
+      unit.regenerationAccumulator = 0;
       return;
     }
 
-    unit.hp = Math.min(unit.maxHp, unit.hp + regeneration * deltaSeconds);
+    unit.regenerationAccumulator += deltaSeconds;
+
+    while (unit.regenerationAccumulator >= 1 && unit.hp < unit.maxHp) {
+      unit.hp = Math.min(unit.maxHp, unit.hp + regeneration);
+      unit.regenerationAccumulator -= 1;
+    }
+
+    if (unit.hp >= unit.maxHp) {
+      unit.regenerationAccumulator = 0;
+    }
   }
 
   private findResource(id: string | null) {
@@ -1598,6 +1613,7 @@ export class BattleCartEngine {
       warrior.attackCooldown = 0;
       warrior.flashUntil = 0;
       warrior.combatAnchor = null;
+      warrior.regenerationAccumulator = 0;
       warrior.state = "formation";
       warrior.targetId = null;
       warrior.sprite.visible = true;
@@ -1616,6 +1632,7 @@ export class BattleCartEngine {
       gatherer.attackCooldown = 0;
       gatherer.flashUntil = 0;
       gatherer.combatAnchor = null;
+      gatherer.regenerationAccumulator = 0;
       gatherer.state = "formation";
       gatherer.targetId = null;
       gatherer.sprite.visible = true;
@@ -1651,6 +1668,7 @@ export class BattleCartEngine {
     warrior.attackCooldown = 0;
     warrior.flashUntil = 0;
     warrior.combatAnchor = null;
+    warrior.regenerationAccumulator = 0;
     warrior.state = "formation";
     warrior.targetId = null;
     warrior.sprite.visible = true;
@@ -1665,6 +1683,7 @@ export class BattleCartEngine {
     gatherer.attackCooldown = 0;
     gatherer.flashUntil = 0;
     gatherer.combatAnchor = null;
+    gatherer.regenerationAccumulator = 0;
     gatherer.state = "formation";
     gatherer.targetId = null;
     gatherer.sprite.visible = true;

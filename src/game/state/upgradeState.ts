@@ -87,13 +87,13 @@ export const defaultUpgradeState: UpgradeState = {
     hp: 7,
     damage: 2,
     attackSpeed: 2,
-    regeneration: 0,
+    regeneration: 1,
   },
   gatherers: {
     count: 2,
     hp: 3,
     gathering: 2,
-    regeneration: 0,
+    regeneration: 1,
   },
   upgrades: [],
 };

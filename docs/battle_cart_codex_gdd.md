@@ -254,7 +254,7 @@ Hired warriors are added to the next run and use generated extra formation slots
 | HP | 7 | `WARRIOR_BASE_HP` | Current code/config value. |
 | Damage | 2 | `WARRIOR_DAMAGE` | Damage per attack. |
 | Attack speed | 2/sec | `WARRIOR_ATTACKS_PER_SECOND` | Attacks per second while engaged. |
-| Regeneration | 0/sec | engine progression state | Increased only by upgrade. |
+| Regeneration | 0.5 HP/sec | `WARRIOR_REGENERATION_PER_SECOND` | Ticks once per second; increased by upgrade. |
 | Run speed multiplier | 4x | `WARRIOR_RUN_SPEED_MULTIPLIER` | Uses world scroll speed as base. |
 
 ### Warrior States
@@ -277,6 +277,16 @@ Hired warriors are added to the next run and use generated extra formation slots
 | `warriorRegeneration` | Warrior regeneration +1/sec | TODO | 6 ore |
 | `hireWarrior` | Warrior count +1 | TODO | 8 ore |
 
+### Warrior Regeneration Formula
+
+Living warriors regenerate once per second during active runs:
+
+```text
+newHp = min(maxHp, currentHp + warriorRegeneration)
+```
+
+Dead warriors do not regenerate.
+
 ## 9. Gatherer Stats and Upgrades
 
 ### Starting Gatherers
@@ -293,7 +303,7 @@ Hired gatherers are added to the next run and use generated extra formation slot
 |---|---:|---|---|
 | HP | 3 | `GATHERER_BASE_HP` | Current code/config value. |
 | Gathering rate | 2/sec | `GATHERER_GATHERING_RATE_PER_SECOND` | Resource units gathered per second per gatherer. |
-| Regeneration | 0/sec | engine progression state | Increased only by upgrade. |
+| Regeneration | 1 HP/sec | `GATHERER_REGENERATION_PER_SECOND` | Ticks once per second; increased by upgrade. |
 | Run speed multiplier | 3x | `GATHERER_RUN_SPEED_MULTIPLIER` | Uses world scroll speed as base. |
 
 ### Gatherer States
@@ -315,6 +325,16 @@ Hired gatherers are added to the next run and use generated extra formation slot
 | `gathererHp` | Gatherer HP +1 | TODO | 4 wood |
 | `gathererRegeneration` | Gatherer regeneration +1/sec | TODO | 6 wood |
 | `hireGatherer` | Gatherer count +1 | TODO | 8 wood |
+
+### Gatherer Regeneration Formula
+
+Living gatherers regenerate once per second during active runs:
+
+```text
+newHp = min(maxHp, currentHp + gathererRegeneration)
+```
+
+Dead gatherers do not regenerate.
 
 ## 10. Resource Spawning and Gathering
 
@@ -568,7 +588,7 @@ Upgrade button disabled reasons:
 | System | Current State |
 |---|---|
 | Game over | Run phase becomes `gameOver`; dedicated game-over screen/restart UI is not implemented. |
-| Regeneration upgrades | Stat and per-frame healing are implemented; no visual feedback. |
+| Regeneration upgrades | Implemented; living warriors/gatherers heal once per second and HP bars show the refill. |
 | Spikes | Config/stat/damage hook implemented; starts at 0 and only affects wolves targeting cart within range. |
 | Wolf AI | Simple nearest living unit or cart targeting only. |
 | Auto-retargeting | Warriors retarget nearest wolf after wolf death; gatherer retargeting is not implemented. |
