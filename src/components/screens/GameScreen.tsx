@@ -6,6 +6,7 @@ import { TimerOverlay } from "../ui/TimerOverlay";
 import { defaultDebugState } from "../../game/state/debugState";
 import { defaultUpgradeState } from "../../game/state/upgradeState";
 import { ResurrectionScreen } from "./ResurrectionScreen";
+import { ScalingSummaryScreen } from "./ScalingSummaryScreen";
 import { UpgradeScreen } from "./UpgradeScreen";
 
 export function GameScreen() {
@@ -36,6 +37,7 @@ export function GameScreen() {
         <DebugOverlay debug={debug} />
         <TimerOverlay seconds={debug.runTimeRemaining} />
         <ResourceOverlay
+          runNumber={debug.runNumber}
           wood={debug.wood}
           ore={debug.ore}
           cartHp={debug.cartHp}
@@ -60,6 +62,12 @@ export function GameScreen() {
           onResurrectWarrior={() => engineRef.current?.resurrectWarrior()}
           onResurrectGatherer={() => engineRef.current?.resurrectGatherer()}
           onContinue={() => engineRef.current?.continueToUpgrade()}
+        />
+      ) : null}
+      {upgrades.phase === "scalingSummary" ? (
+        <ScalingSummaryScreen
+          state={upgrades}
+          onContinue={() => engineRef.current?.continueFromScalingSummary()}
         />
       ) : null}
     </main>

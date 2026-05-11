@@ -1,4 +1,5 @@
 type ResourceOverlayProps = {
+  runNumber: number;
   wood: number;
   ore: number;
   cartHp: number;
@@ -11,6 +12,7 @@ type ResourceOverlayProps = {
 };
 
 export function ResourceOverlay({
+  runNumber,
   wood,
   ore,
   cartHp,
@@ -23,6 +25,7 @@ export function ResourceOverlay({
 }: ResourceOverlayProps) {
   return (
     <div className="resource-panel" aria-label="Resources">
+      <span>Заезд: {runNumber}</span>
       <span>🪵 {wood}</span>
       <span>⛓️ {ore}</span>
       <span>HP {cartHp}/{cartMaxHp}</span>

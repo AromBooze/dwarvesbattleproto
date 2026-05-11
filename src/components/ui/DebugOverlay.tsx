@@ -15,6 +15,11 @@ Resources ${debug.activeResources}
 Wolves ${debug.activeWolves}
 Next resource ${debug.nextResourceSpawn.toFixed(1)}s
 Next wolf ${debug.nextWolfSpawn.toFixed(1)}s
+Run ${debug.runNumber}
+Resource range ${debug.effectiveResourceAmountMin}-${debug.effectiveResourceAmountMax}
+Wolf pack ${debug.effectiveWolfPackSizeMin}-${debug.effectiveWolfPackSizeMax}
+Spawn R/W ${debug.effectiveResourceSpawnInterval.toFixed(1)}s/${debug.effectiveWolfSpawnInterval.toFixed(1)}s
+Wolf bonuses HP/D/AS ${debug.wolfHpBonus}/${debug.wolfDamageBonus}/${debug.wolfAttackSpeedBonus}
 Run phase ${debug.runPhase}
 Run time ${debug.runTimeRemaining.toFixed(1)}s
 Gaze mode ${debug.gazeMode}

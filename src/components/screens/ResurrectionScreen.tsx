@@ -23,7 +23,7 @@ export function ResurrectionScreen({
         <header className="upgrade-header">
           <div>
             <h1>Воскресите пораженных гномов</h1>
-            <p>🪵 {state.wood} &nbsp; ⛓️ {state.ore}</p>
+            <p>Заезд: {state.runNumber} &nbsp; 🪵 {state.wood} &nbsp; ⛓️ {state.ore}</p>
           </div>
           <button className="next-run-button" type="button" onClick={onContinue}>
             Далее

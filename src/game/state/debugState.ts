@@ -8,6 +8,16 @@ export type DebugState = {
   activeWolves: number;
   nextResourceSpawn: number;
   nextWolfSpawn: number;
+  runNumber: number;
+  effectiveResourceAmountMin: number;
+  effectiveResourceAmountMax: number;
+  effectiveWolfPackSizeMin: number;
+  effectiveWolfPackSizeMax: number;
+  effectiveResourceSpawnInterval: number;
+  effectiveWolfSpawnInterval: number;
+  wolfHpBonus: number;
+  wolfDamageBonus: number;
+  wolfAttackSpeedBonus: number;
   gazeMode: string;
   targetsInsideCone: number;
   selectedTarget: string;
@@ -32,7 +42,7 @@ export type DebugState = {
   deadWarriors: number;
   deadGatherers: number;
   gameOver: boolean;
-  runPhase: "running" | "resurrection" | "upgrade" | "gameOver";
+  runPhase: "running" | "resurrection" | "upgrade" | "scalingSummary" | "gameOver";
   runTimeRemaining: number;
   runCompleted: boolean;
 };
@@ -47,6 +57,16 @@ export const defaultDebugState: DebugState = {
   activeWolves: 0,
   nextResourceSpawn: 0,
   nextWolfSpawn: 0,
+  runNumber: 1,
+  effectiveResourceAmountMin: 1,
+  effectiveResourceAmountMax: 10,
+  effectiveWolfPackSizeMin: 3,
+  effectiveWolfPackSizeMax: 7,
+  effectiveResourceSpawnInterval: 4,
+  effectiveWolfSpawnInterval: 6,
+  wolfHpBonus: 0,
+  wolfDamageBonus: 0,
+  wolfAttackSpeedBonus: 0,
   gazeMode: "default",
   targetsInsideCone: 0,
   selectedTarget: "none",
@@ -72,6 +92,6 @@ export const defaultDebugState: DebugState = {
   deadGatherers: 0,
   gameOver: false,
   runPhase: "running",
-  runTimeRemaining: 90,
+  runTimeRemaining: 60,
   runCompleted: false,
 };

@@ -11,9 +11,16 @@ export type UpgradeButtonState = {
 };
 
 export type UpgradeState = {
-  phase: "running" | "resurrection" | "upgrade" | "gameOver";
+  phase: "running" | "resurrection" | "upgrade" | "scalingSummary" | "gameOver";
+  runNumber: number;
   wood: number;
   ore: number;
+  scalingSummary: {
+    messages: string[];
+    wolfHpBonus: number;
+    wolfDamageBonus: number;
+    wolfAttackSpeedBonus: number;
+  };
   resurrection: {
     deadWarriors: number;
     deadGatherers: number;
@@ -49,8 +56,15 @@ export type UpgradeState = {
 
 export const defaultUpgradeState: UpgradeState = {
   phase: "running",
+  runNumber: 1,
   wood: 0,
   ore: 0,
+  scalingSummary: {
+    messages: [],
+    wolfHpBonus: 0,
+    wolfDamageBonus: 0,
+    wolfAttackSpeedBonus: 0,
+  },
   cart: {
     hp: 20,
     maxHp: 20,

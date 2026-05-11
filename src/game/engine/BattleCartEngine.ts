@@ -21,10 +21,24 @@ import {
   GAZE_CONE_LENGTH_MULTIPLIER,
 } from "../../config/balance/input";
 import {
+  RESOURCE_AMOUNT_MAX,
+  RESOURCE_AMOUNT_MIN,
+  RESOURCE_SPAWN_INTERVAL_SECONDS,
+} from "../../config/balance/resources";
+import {
   RESURRECTION_ORE_COST,
   RESURRECTION_WOOD_COST,
 } from "../../config/balance/resurrection";
 import { RUN_DURATION_SECONDS, WORLD_SCROLL_SECONDS_PER_SCREEN } from "../../config/balance/run";
+import {
+  MIN_RESOURCE_SPAWN_INTERVAL_SECONDS,
+  MIN_WOLF_SPAWN_INTERVAL_SECONDS,
+  RESOURCE_AMOUNT_GROWTH_PER_SUCCESSFUL_RUN,
+  RESOURCE_SPAWN_INTERVAL_REDUCTION_PER_SUCCESSFUL_RUN,
+  WOLF_PACK_GROWTH_PER_SUCCESSFUL_RUN,
+  WOLF_SPAWN_INTERVAL_REDUCTION_PER_SUCCESSFUL_RUN,
+  WOLF_STAT_BONUS_PER_SUCCESSFUL_RUN,
+} from "../../config/balance/scaling";
 import {
   UPGRADE_DEFINITIONS,
   type ResourceCost,
@@ -38,7 +52,11 @@ import {
 } from "../../config/balance/warriors";
 import {
   WOLF_ATTACKS_PER_SECOND,
+  WOLF_BASE_HP,
   WOLF_DAMAGE,
+  WOLF_PACK_SIZE_MAX,
+  WOLF_PACK_SIZE_MIN,
+  WOLF_PACK_SPAWN_INTERVAL_SECONDS,
   WOLF_MOVEMENT_SPEED_MULTIPLIER,
 } from "../../config/balance/wolves";
 import { gathererFormation, warriorFormation } from "../entities/formation";
@@ -58,7 +76,7 @@ import {
 } from "../input/gazeInput";
 import { loadSprites } from "../rendering/loadSprites";
 import { spriteManifest } from "../rendering/spriteManifest";
-import { SpawnSystem } from "../systems/SpawnSystem";
+import { SpawnSystem, type SpawnSettings } from "../systems/SpawnSystem";
 import type { DebugState } from "../state/debugState";
 import type { UpgradeState } from "../state/upgradeState";
 import type { SpriteTextureMap } from "../../types/sprites";
@@ -66,7 +84,8 @@ import type { ResourceEntity, WolfEntity } from "../entities/worldEntities";
 
 type DebugListener = (state: DebugState) => void;
 type UpgradeListener = (state: UpgradeState) => void;
-type RunPhase = "running" | "resurrection" | "upgrade" | "gameOver";
+type RunPhase = "running" | "resurrection" | "upgrade" | "scalingSummary" | "gameOver";
+type WolfStatScalingChoice = "hp" | "damage" | "attackSpeed";
 
 const GRID_SIZE = 32;
 const UNIT_ARRIVAL_DISTANCE = 14;
@@ -126,6 +145,8 @@ export class BattleCartEngine {
   private wood = 0;
   private ore = 0;
   private runPhase: RunPhase = "running";
+  private runNumber = 1;
+  private completedRuns = 0;
   private runTimeRemaining = RUN_DURATION_SECONDS;
   private runCompleted = false;
   private cartMaxHp = CART_BASE_HP;
@@ -141,6 +162,10 @@ export class BattleCartEngine {
   private gathererMaxHp = GATHERER_BASE_HP;
   private gathererGatheringRate = GATHERER_GATHERING_RATE_PER_SECOND;
   private gathererRegeneration = 0;
+  private wolfHpBonus = 0;
+  private wolfDamageBonus = 0;
+  private wolfAttackSpeedBonus = 0;
+  private readonly scalingSummaryMessages: string[] = [];
   private readonly upgradePurchases = new Map<UpgradeId, number>();
   private cartFlashUntil = 0;
   private gameOver = false;
@@ -192,7 +217,7 @@ export class BattleCartEngine {
       return;
     }
 
-    this.spawnSystem = new SpawnSystem(this.worldLayer, this.textures);
+    this.spawnSystem = new SpawnSystem(this.worldLayer, this.textures, this.getSpawnSettings());
     this.createStaticScene();
     this.resizeObserver = new ResizeObserver(() => this.layoutScene());
     this.resizeObserver.observe(this.host);
@@ -302,6 +327,17 @@ export class BattleCartEngine {
       return;
     }
 
+    this.runPhase = "scalingSummary";
+    this.lastAssignmentResult = "world scaled";
+    this.publishUpgradeState();
+    this.publishDebug(this.getScrollSpeed());
+  }
+
+  continueFromScalingSummary() {
+    if (this.runPhase !== "scalingSummary") {
+      return;
+    }
+
     this.runPhase = "running";
     this.runTimeRemaining = RUN_DURATION_SECONDS;
     this.runCompleted = false;
@@ -312,6 +348,7 @@ export class BattleCartEngine {
     this.selectedTargetId = null;
     this.lastAssignmentResult = "next run started";
     this.spawnSystem?.clearWorld();
+    this.spawnSystem?.configure(this.getSpawnSettings(), true);
     this.healLivingForBetweenRun();
     this.createStaticScene();
     this.layoutScene();
@@ -1029,12 +1066,12 @@ export class BattleCartEngine {
     }
 
     this.bumpSprite(wolf.sprite, 4);
-    wolf.attackCooldown = 1 / WOLF_ATTACKS_PER_SECOND;
+    wolf.attackCooldown = 1 / this.getEffectiveWolfAttackSpeed();
 
     if (wolf.targetType === "warrior") {
       const warrior = this.findWarrior(wolf.targetId);
       if (warrior) {
-        this.damageWarrior(warrior, WOLF_DAMAGE, wolf);
+        this.damageWarrior(warrior, this.getEffectiveWolfDamage(), wolf);
       }
       return;
     }
@@ -1042,13 +1079,13 @@ export class BattleCartEngine {
     if (wolf.targetType === "gatherer") {
       const gatherer = this.findGatherer(wolf.targetId);
       if (gatherer) {
-        this.damageGatherer(gatherer, WOLF_DAMAGE, wolf);
+        this.damageGatherer(gatherer, this.getEffectiveWolfDamage(), wolf);
       }
       return;
     }
 
     if (wolf.targetType === "cart") {
-      this.damageCart(WOLF_DAMAGE);
+      this.damageCart(this.getEffectiveWolfDamage());
     }
   }
 
@@ -1448,6 +1485,7 @@ export class BattleCartEngine {
     this.resurrectedGatherers = 0;
     this.spawnSystem?.clearWorld();
     this.healLivingForBetweenRun();
+    this.applySuccessfulRunScaling();
 
     if (this.previousRunDeadWarriors + this.previousRunDeadGatherers > 0) {
       this.runPhase = "resurrection";
@@ -1458,6 +1496,50 @@ export class BattleCartEngine {
     }
 
     this.publishUpgradeState();
+  }
+
+  private applySuccessfulRunScaling() {
+    this.completedRuns += 1;
+    this.runNumber = this.completedRuns + 1;
+    const statChoice = this.chooseWolfStatScaling();
+
+    if (statChoice === "hp") {
+      this.wolfHpBonus += WOLF_STAT_BONUS_PER_SUCCESSFUL_RUN;
+    }
+
+    if (statChoice === "damage") {
+      this.wolfDamageBonus += WOLF_STAT_BONUS_PER_SUCCESSFUL_RUN;
+    }
+
+    if (statChoice === "attackSpeed") {
+      this.wolfAttackSpeedBonus += WOLF_STAT_BONUS_PER_SUCCESSFUL_RUN;
+    }
+
+    this.scalingSummaryMessages.length = 0;
+    this.scalingSummaryMessages.push(
+      "🐺 Размер стаи +1",
+      "⏱ Волки быстрее появляются",
+      "🌲 Ресурсы стали богаче",
+      this.getWolfStatScalingMessage(statChoice),
+    );
+    this.spawnSystem?.configure(this.getSpawnSettings(), true);
+  }
+
+  private chooseWolfStatScaling(): WolfStatScalingChoice {
+    const choices: WolfStatScalingChoice[] = ["hp", "damage", "attackSpeed"];
+    return choices[Math.floor(Math.random() * choices.length)];
+  }
+
+  private getWolfStatScalingMessage(choice: WolfStatScalingChoice) {
+    if (choice === "hp") {
+      return "💀 Волки: Жизни +1";
+    }
+
+    if (choice === "damage") {
+      return "💀 Волки: Урон +1";
+    }
+
+    return "💀 Волки: Скорость атаки +1";
   }
 
   private healLivingForBetweenRun() {
@@ -1651,6 +1733,60 @@ export class BattleCartEngine {
     return Math.floor(this.wood) >= (cost.wood ?? 0) && Math.floor(this.ore) >= (cost.ore ?? 0);
   }
 
+  private getSpawnSettings(): SpawnSettings {
+    return {
+      resourceSpawnInterval: this.getEffectiveResourceSpawnInterval(),
+      resourceAmountMin: this.getEffectiveResourceAmountMin(),
+      resourceAmountMax: this.getEffectiveResourceAmountMax(),
+      wolfSpawnInterval: this.getEffectiveWolfSpawnInterval(),
+      wolfPackSizeMin: this.getEffectiveWolfPackSizeMin(),
+      wolfPackSizeMax: this.getEffectiveWolfPackSizeMax(),
+      wolfHp: this.getEffectiveWolfHp(),
+    };
+  }
+
+  private getEffectiveResourceAmountMin() {
+    return RESOURCE_AMOUNT_MIN + this.completedRuns * RESOURCE_AMOUNT_GROWTH_PER_SUCCESSFUL_RUN;
+  }
+
+  private getEffectiveResourceAmountMax() {
+    return RESOURCE_AMOUNT_MAX + this.completedRuns * RESOURCE_AMOUNT_GROWTH_PER_SUCCESSFUL_RUN;
+  }
+
+  private getEffectiveWolfPackSizeMin() {
+    return WOLF_PACK_SIZE_MIN + this.completedRuns * WOLF_PACK_GROWTH_PER_SUCCESSFUL_RUN;
+  }
+
+  private getEffectiveWolfPackSizeMax() {
+    return WOLF_PACK_SIZE_MAX + this.completedRuns * WOLF_PACK_GROWTH_PER_SUCCESSFUL_RUN;
+  }
+
+  private getEffectiveResourceSpawnInterval() {
+    return Math.max(
+      MIN_RESOURCE_SPAWN_INTERVAL_SECONDS,
+      RESOURCE_SPAWN_INTERVAL_SECONDS - this.completedRuns * RESOURCE_SPAWN_INTERVAL_REDUCTION_PER_SUCCESSFUL_RUN,
+    );
+  }
+
+  private getEffectiveWolfSpawnInterval() {
+    return Math.max(
+      MIN_WOLF_SPAWN_INTERVAL_SECONDS,
+      WOLF_PACK_SPAWN_INTERVAL_SECONDS - this.completedRuns * WOLF_SPAWN_INTERVAL_REDUCTION_PER_SUCCESSFUL_RUN,
+    );
+  }
+
+  private getEffectiveWolfHp() {
+    return WOLF_BASE_HP + this.wolfHpBonus;
+  }
+
+  private getEffectiveWolfDamage() {
+    return WOLF_DAMAGE + this.wolfDamageBonus;
+  }
+
+  private getEffectiveWolfAttackSpeed() {
+    return WOLF_ATTACKS_PER_SECOND + this.wolfAttackSpeedBonus;
+  }
+
   private isUpgradeAtMax(upgradeId: UpgradeId, max?: number) {
     if (max === undefined) {
       return false;
@@ -1678,8 +1814,15 @@ export class BattleCartEngine {
   private publishUpgradeState() {
     this.onUpgrade({
       phase: this.runPhase,
+      runNumber: this.runNumber,
       wood: Math.floor(this.wood),
       ore: Math.floor(this.ore),
+      scalingSummary: {
+        messages: [...this.scalingSummaryMessages],
+        wolfHpBonus: this.wolfHpBonus,
+        wolfDamageBonus: this.wolfDamageBonus,
+        wolfAttackSpeedBonus: this.wolfAttackSpeedBonus,
+      },
       resurrection: {
         deadWarriors: this.previousRunDeadWarriors,
         deadGatherers: this.previousRunDeadGatherers,
@@ -1877,6 +2020,16 @@ export class BattleCartEngine {
       activeWolves: spawnDebug?.activeWolves ?? 0,
       nextResourceSpawn: spawnDebug?.nextResourceSpawn ?? 0,
       nextWolfSpawn: spawnDebug?.nextWolfSpawn ?? 0,
+      runNumber: this.runNumber,
+      effectiveResourceAmountMin: this.getEffectiveResourceAmountMin(),
+      effectiveResourceAmountMax: this.getEffectiveResourceAmountMax(),
+      effectiveWolfPackSizeMin: this.getEffectiveWolfPackSizeMin(),
+      effectiveWolfPackSizeMax: this.getEffectiveWolfPackSizeMax(),
+      effectiveResourceSpawnInterval: this.getEffectiveResourceSpawnInterval(),
+      effectiveWolfSpawnInterval: this.getEffectiveWolfSpawnInterval(),
+      wolfHpBonus: this.wolfHpBonus,
+      wolfDamageBonus: this.wolfDamageBonus,
+      wolfAttackSpeedBonus: this.wolfAttackSpeedBonus,
       gazeMode: this.currentMode,
       targetsInsideCone: this.targetsInsideCone,
       selectedTarget: this.selectedTarget,

@@ -263,6 +263,22 @@ button {
   min-height: 76px;
 }
 
+.scaling-shell {
+  width: min(620px, 100%);
+}
+
+.scaling-summary-list {
+  display: grid;
+  gap: 10px;
+}
+
+.scaling-summary-row {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 12px;
+  font-weight: 800;
+}
+
 @media (max-width: 720px) {
   .top-overlay {
     grid-template-columns: 1fr auto;

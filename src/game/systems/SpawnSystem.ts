@@ -6,17 +6,8 @@ import {
   SPAWN_VERTICAL_TOP_PADDING,
 } from "../../config/balance/spawn";
 import {
-  RESOURCE_AMOUNT_MAX,
-  RESOURCE_AMOUNT_MIN,
-  RESOURCE_SPAWN_INTERVAL_SECONDS,
   WOOD_SPAWN_CHANCE,
 } from "../../config/balance/resources";
-import {
-  WOLF_BASE_HP,
-  WOLF_PACK_SIZE_MAX,
-  WOLF_PACK_SIZE_MIN,
-  WOLF_PACK_SPAWN_INTERVAL_SECONDS,
-} from "../../config/balance/wolves";
 import type { ResourceEntity, ResourceType, WolfEntity } from "../entities/worldEntities";
 import type { SpriteTextureMap } from "../../types/sprites";
 import { randomFloat, randomIntInclusive } from "../../utils/random";
@@ -47,19 +38,45 @@ export type SpawnDebugState = {
   nextWolfSpawn: number;
 };
 
+export type SpawnSettings = {
+  resourceSpawnInterval: number;
+  resourceAmountMin: number;
+  resourceAmountMax: number;
+  wolfSpawnInterval: number;
+  wolfPackSizeMin: number;
+  wolfPackSizeMax: number;
+  wolfHp: number;
+};
+
 export class SpawnSystem {
   private readonly resources: ResourceEntity[] = [];
   private readonly wolves: WolfEntity[] = [];
   private readonly deathEffects: DeathEffect[] = [];
-  private nextResourceSpawn = RESOURCE_SPAWN_INTERVAL_SECONDS;
-  private nextWolfSpawn = WOLF_PACK_SPAWN_INTERVAL_SECONDS;
+  private nextResourceSpawn: number;
+  private nextWolfSpawn: number;
   private nextResourceId = 1;
   private nextWolfId = 1;
 
   constructor(
     private readonly layer: Container,
     private readonly textures: SpriteTextureMap,
-  ) {}
+    private settings: SpawnSettings,
+  ) {
+    this.nextResourceSpawn = settings.resourceSpawnInterval;
+    this.nextWolfSpawn = settings.wolfSpawnInterval;
+  }
+
+  configure(settings: SpawnSettings, resetTimers = false) {
+    this.settings = settings;
+
+    if (resetTimers) {
+      this.nextResourceSpawn = settings.resourceSpawnInterval;
+      this.nextWolfSpawn = settings.wolfSpawnInterval;
+    } else {
+      this.nextResourceSpawn = Math.min(this.nextResourceSpawn, settings.resourceSpawnInterval);
+      this.nextWolfSpawn = Math.min(this.nextWolfSpawn, settings.wolfSpawnInterval);
+    }
+  }
 
   update(deltaSeconds: number, scrollSpeed: number, screen: ScreenBounds): DespawnResult {
     const removedResourceIds: string[] = [];
@@ -69,12 +86,12 @@ export class SpawnSystem {
 
     while (this.nextResourceSpawn <= 0) {
       this.spawnResource(screen);
-      this.nextResourceSpawn += RESOURCE_SPAWN_INTERVAL_SECONDS;
+      this.nextResourceSpawn += this.settings.resourceSpawnInterval;
     }
 
     while (this.nextWolfSpawn <= 0) {
       this.spawnWolfPack(screen);
-      this.nextWolfSpawn += WOLF_PACK_SPAWN_INTERVAL_SECONDS;
+      this.nextWolfSpawn += this.settings.wolfSpawnInterval;
     }
 
     this.moveAndDespawn(deltaSeconds, scrollSpeed, removedResourceIds);
@@ -165,7 +182,7 @@ export class SpawnSystem {
     const texture = type === "wood" ? this.textures.tree : this.textures.ore;
     const sprite = this.createWorldSprite(texture);
     const progressBar = new Graphics();
-    const maxAmount = randomIntInclusive(RESOURCE_AMOUNT_MIN, RESOURCE_AMOUNT_MAX);
+    const maxAmount = randomIntInclusive(this.settings.resourceAmountMin, this.settings.resourceAmountMax);
 
     sprite.position.set(
       screen.width + SPAWN_OFFSCREEN_PADDING,
@@ -188,7 +205,7 @@ export class SpawnSystem {
   }
 
   private spawnWolfPack(screen: ScreenBounds) {
-    const packSize = randomIntInclusive(WOLF_PACK_SIZE_MIN, WOLF_PACK_SIZE_MAX);
+    const packSize = randomIntInclusive(this.settings.wolfPackSizeMin, this.settings.wolfPackSizeMax);
     const baseX = screen.width + SPAWN_OFFSCREEN_PADDING;
     const baseY = this.randomPlayableY(screen.height);
     const columns = 4;
@@ -209,8 +226,8 @@ export class SpawnSystem {
       this.wolves.push({
         id: `wolf-${this.nextWolfId}`,
         sprite,
-        hp: WOLF_BASE_HP,
-        maxHp: WOLF_BASE_HP,
+        hp: this.settings.wolfHp,
+        maxHp: this.settings.wolfHp,
         targetId: null,
         targetType: null,
         combatAnchor: null,

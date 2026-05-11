@@ -77,7 +77,7 @@ Current art style target: **Simple NES-inspired pixel art**.
 11. Player spends wood/ore on upgrades.
 12. Player starts the next run.
 
-Current note: next-run difficulty scaling is **not implemented yet**.
+Current note: next-run difficulty scaling is implemented after successful runs only.
 
 ## 4. Win / Lose Conditions
 
@@ -98,7 +98,7 @@ Current note: next-run difficulty scaling is **not implemented yet**.
 | Scroll speed formula | `screenWidth / WORLD_SCROLL_SECONDS_PER_SCREEN` | engine |
 | Between-run resurrection phase | yes, on successful run only if units died | engine |
 | Between-run upgrade phase | yes, after resurrection or immediately if no units died | engine |
-| Difficulty scaling | not implemented | TODO |
+| Difficulty scaling | yes, after successful runs only | `src/config/balance/scaling.ts` |
 
 When the run completes successfully:
 
@@ -108,10 +108,110 @@ When the run completes successfully:
 - dead units are held for optional resurrection;
 - living warriors/gatherers and cart are healed;
 - resources and purchased upgrades persist;
+- run number increments;
+- difficulty scaling is applied for the next run;
 - resurrection screen opens if any unit died;
 - upgrade screen opens immediately if no units died.
 
-## 6. Cart Stats and Upgrades
+## 6. Run-to-Run Difficulty Scaling
+
+Scaling values are defined in `src/config/balance/scaling.ts`.
+
+### Run Number
+
+| Rule | Current Implementation |
+|---|---|
+| First run | `1` |
+| Increment timing | After each successful run |
+| Losing | Does not increment and does not apply scaling |
+| Display text | `Заезд: X` |
+| Display locations | Top gameplay UI, resurrection screen, upgrade screen, scaling summary screen |
+
+### Scaling Timing
+
+Scaling is applied after successful run completion and before the next run begins. The first run uses base values from the resource and wolf config files.
+
+After the player clicks `Следующий заезд` on the upgrade screen, the game shows a scaling summary popup:
+
+| UI Element | Current Text |
+|---|---|
+| Title | `Мир становится опаснее` |
+| Continue button | `Продолжить` |
+
+### Scaling Values
+
+| Scaling Parameter | Current Value | Minimum / Notes | Source |
+|---|---:|---|---|
+| Resource amount growth | +1 min and +1 max per successful run | no max | `RESOURCE_AMOUNT_GROWTH_PER_SUCCESSFUL_RUN` |
+| Wolf pack growth | +1 min and +1 max per successful run | no max | `WOLF_PACK_GROWTH_PER_SUCCESSFUL_RUN` |
+| Wolf spawn interval reduction | -0.3 sec per successful run | minimum 2 sec | `WOLF_SPAWN_INTERVAL_REDUCTION_PER_SUCCESSFUL_RUN`, `MIN_WOLF_SPAWN_INTERVAL_SECONDS` |
+| Resource spawn interval reduction | -0.2 sec per successful run | minimum 1 sec | `RESOURCE_SPAWN_INTERVAL_REDUCTION_PER_SUCCESSFUL_RUN`, `MIN_RESOURCE_SPAWN_INTERVAL_SECONDS` |
+| Wolf stat bonus | +1 to one random wolf stat per successful run | persists permanently | `WOLF_STAT_BONUS_PER_SUCCESSFUL_RUN` |
+
+### Effective Scaling Formulas
+
+```text
+completedRuns = successful runs completed
+
+resourceMin = RESOURCE_AMOUNT_MIN + completedRuns * RESOURCE_AMOUNT_GROWTH_PER_SUCCESSFUL_RUN
+resourceMax = RESOURCE_AMOUNT_MAX + completedRuns * RESOURCE_AMOUNT_GROWTH_PER_SUCCESSFUL_RUN
+
+wolfPackMin = WOLF_PACK_SIZE_MIN + completedRuns * WOLF_PACK_GROWTH_PER_SUCCESSFUL_RUN
+wolfPackMax = WOLF_PACK_SIZE_MAX + completedRuns * WOLF_PACK_GROWTH_PER_SUCCESSFUL_RUN
+
+resourceSpawnInterval = max(
+  MIN_RESOURCE_SPAWN_INTERVAL_SECONDS,
+  RESOURCE_SPAWN_INTERVAL_SECONDS - completedRuns * RESOURCE_SPAWN_INTERVAL_REDUCTION_PER_SUCCESSFUL_RUN
+)
+
+wolfSpawnInterval = max(
+  MIN_WOLF_SPAWN_INTERVAL_SECONDS,
+  WOLF_PACK_SPAWN_INTERVAL_SECONDS - completedRuns * WOLF_SPAWN_INTERVAL_REDUCTION_PER_SUCCESSFUL_RUN
+)
+```
+
+### Effective Run Examples
+
+Current base config uses resource amount `1-10` and wolf pack size `3-7`.
+
+| Run | Completed Runs | Resource Amount | Wolf Pack Size | Resource Spawn | Wolf Spawn |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 0 | 1-10 | 3-7 | 4.0 sec | 6.0 sec |
+| 2 | 1 | 2-11 | 4-8 | 3.8 sec | 5.7 sec |
+| 3 | 2 | 3-12 | 5-9 | 3.6 sec | 5.4 sec |
+
+### Random Wolf Stat Scaling
+
+Each successful run randomly chooses one wolf stat:
+
+| Choice | Effect |
+|---|---|
+| Wolf HP | `wolfHpBonus += 1` |
+| Wolf Damage | `wolfDamageBonus += 1` |
+| Wolf Attack Speed | `wolfAttackSpeedBonus += 1` |
+
+Bonuses persist permanently and stack with prior bonuses.
+
+Effective wolf formulas:
+
+```text
+effectiveWolfHp = WOLF_BASE_HP + wolfHpBonus
+effectiveWolfDamage = WOLF_DAMAGE + wolfDamageBonus
+effectiveWolfAttackSpeed = WOLF_ATTACKS_PER_SECOND + wolfAttackSpeedBonus
+```
+
+Scaling summary messages:
+
+| Trigger | Message |
+|---|---|
+| Wolf pack grows | `🐺 Размер стаи +1` |
+| Wolf spawn interval shrinks | `⏱ Волки быстрее появляются` |
+| Resource amounts grow | `🌲 Ресурсы стали богаче` |
+| Wolf HP chosen | `💀 Волки: Жизни +1` |
+| Wolf damage chosen | `💀 Волки: Урон +1` |
+| Wolf attack speed chosen | `💀 Волки: Скорость атаки +1` |
+
+## 7. Cart Stats and Upgrades
 
 ### Cart Base Stats
 
@@ -137,7 +237,7 @@ Current max armor is 4, so current max reduction is 40%.
 | `cartArmor` | Armor +1 | 4 armor | 4 ore |
 | `cartSpikes` | Spikes DPS +1 | 5 spikes | 3 wood + 3 ore |
 
-## 7. Warrior Stats and Upgrades
+## 8. Warrior Stats and Upgrades
 
 ### Starting Warriors
 
@@ -177,7 +277,7 @@ Hired warriors are added to the next run and use generated extra formation slots
 | `warriorRegeneration` | Warrior regeneration +1/sec | TODO | 6 ore |
 | `hireWarrior` | Warrior count +1 | TODO | 8 ore |
 
-## 8. Gatherer Stats and Upgrades
+## 9. Gatherer Stats and Upgrades
 
 ### Starting Gatherers
 
@@ -216,7 +316,7 @@ Hired gatherers are added to the next run and use generated extra formation slot
 | `gathererRegeneration` | Gatherer regeneration +1/sec | TODO | 6 wood |
 | `hireGatherer` | Gatherer count +1 | TODO | 8 wood |
 
-## 9. Resource Spawning and Gathering
+## 10. Resource Spawning and Gathering
 
 ### Resources
 
@@ -229,7 +329,8 @@ Hired gatherers are added to the next run and use generated extra formation slot
 
 | Parameter | Current Value | Source |
 |---|---:|---|
-| Spawn interval | 4 seconds | `RESOURCE_SPAWN_INTERVAL_SECONDS` |
+| Base spawn interval | 4 seconds | `RESOURCE_SPAWN_INTERVAL_SECONDS` |
+| Effective spawn interval | scales per successful run, minimum 1 second | `scaling.ts` |
 | Spawn side | right, offscreen | implementation |
 | Spawn X padding | screen width + 48 px | `SPAWN_OFFSCREEN_PADDING` |
 | Despawn X | less than -64 px | `DESPAWN_OFFSCREEN_PADDING` |
@@ -237,7 +338,8 @@ Hired gatherers are added to the next run and use generated extra formation slot
 | Spawn Y max | screen height - 48 px | `SPAWN_VERTICAL_BOTTOM_PADDING` |
 | Wood chance | 50% | `WOOD_SPAWN_CHANCE` |
 | Ore chance | 50% | derived |
-| Resource amount | random integer 1-10 | `RESOURCE_AMOUNT_MIN/MAX` |
+| Base resource amount | random integer 1-10 | `RESOURCE_AMOUNT_MIN/MAX` |
+| Effective resource amount | base amount + completed successful runs | `scaling.ts` |
 
 ### Gathering Formula
 
@@ -260,27 +362,29 @@ A resource is removed if:
 
 Gatherers assigned to a removed resource return to formation.
 
-## 10. Wolf Spawning and Combat
+## 11. Wolf Spawning and Combat
 
 ### Wolf Pack Spawning
 
 | Parameter | Current Value | Source |
 |---|---:|---|
-| Spawn interval | 6 seconds | `WOLF_PACK_SPAWN_INTERVAL_SECONDS` |
+| Base spawn interval | 6 seconds | `WOLF_PACK_SPAWN_INTERVAL_SECONDS` |
+| Effective spawn interval | scales per successful run, minimum 2 seconds | `scaling.ts` |
 | Spawn side | right, offscreen | implementation |
 | Spawn X padding | screen width + 48 px | `SPAWN_OFFSCREEN_PADDING` |
 | Spawn Y min | 112 px | `SPAWN_VERTICAL_TOP_PADDING` |
 | Spawn Y max | screen height - 48 px | `SPAWN_VERTICAL_BOTTOM_PADDING` |
-| Pack size | random integer 3-7 | `WOLF_PACK_SIZE_MIN/MAX` |
+| Base pack size | random integer 3-7 | `WOLF_PACK_SIZE_MIN/MAX` |
+| Effective pack size | base size + completed successful runs | `scaling.ts` |
 | Pack layout | 4 columns, 28 px X spacing, 22 px Y spacing | implementation |
 
 ### Wolf Base Stats
 
 | Stat | Current Base Value | Source | Notes |
 |---|---:|---|---|
-| HP | 2 | `WOLF_BASE_HP` | Removed from active wolf list at HP <= 0. |
-| Damage | 1 | `WOLF_DAMAGE` | Damage per attack. |
-| Attack speed | 1/sec | `WOLF_ATTACKS_PER_SECOND` | Attacks per second. |
+| Base HP | 2 | `WOLF_BASE_HP` | Effective HP includes accumulated scaling bonus. |
+| Base damage | 1 | `WOLF_DAMAGE` | Effective damage includes accumulated scaling bonus. |
+| Base attack speed | 1/sec | `WOLF_ATTACKS_PER_SECOND` | Effective attack speed includes accumulated scaling bonus. |
 | Movement speed multiplier | 1x | `WOLF_MOVEMENT_SPEED_MULTIPLIER` | Uses world scroll speed as base. |
 
 ### Combat Ranges and Feedback
@@ -339,7 +443,7 @@ TODO:
 - Exact intended max targeting radius. Current implementation searches all living units.
 - Whether wolf despawn should occur if wolves somehow leave the left side. Current implementation focuses on chase/attack behavior.
 
-## 11. Gaze Control
+## 12. Gaze Control
 
 | Parameter | Current Value | Source |
 |---|---:|---|
@@ -364,7 +468,7 @@ TODO:
 
 Available units are units in `formation` or `returning`.
 
-## 12. Post-Run Resurrection Phase
+## 13. Post-Run Resurrection Phase
 
 Resurrection definitions are in `src/config/balance/resurrection.ts`.
 
@@ -403,7 +507,7 @@ The resurrection phase happens only after a successful run, and only if at least
 | Counters | dead warriors, dead gatherers, resurrected warriors, resurrected gatherers |
 | Cost display | 2 wood + 2 ore per resurrection |
 
-## 13. Upgrade Costs and Cost Scaling
+## 14. Upgrade Costs and Cost Scaling
 
 Upgrade definitions are in `src/config/balance/upgrades.ts`.
 
@@ -427,7 +531,7 @@ Upgrade button disabled reasons:
 | Not enough resources | `Недостаточно ресурсов` |
 | Max value reached | `Максимум` |
 
-## 14. Current Implementation Status
+## 15. Current Implementation Status
 
 ### Implemented
 
@@ -455,6 +559,9 @@ Upgrade button disabled reasons:
 | Upgrade screen | Implemented |
 | Upgrade purchases and cost scaling | Implemented |
 | Hiring extra warriors/gatherers | Implemented |
+| Run number display | Implemented |
+| Run-to-run difficulty scaling | Implemented |
+| Scaling summary screen | Implemented |
 
 ### Partially Implemented
 
@@ -471,8 +578,6 @@ Upgrade button disabled reasons:
 
 | System | Notes |
 |---|---|
-| Difficulty scaling between runs | Not implemented; next run uses same base difficulty. |
-| Run number display | Not implemented. |
 | Dedicated game-over screen | Not implemented. |
 | Restart/new-game flow | Not implemented. |
 | Save/load | Not implemented. |
@@ -483,7 +588,7 @@ Upgrade button disabled reasons:
 | More enemy/resource types | Not implemented. |
 | Final victory/final boss | Not implemented. |
 
-## 15. Current MVP Scope
+## 16. Current MVP Scope
 
 Current MVP includes:
 
@@ -500,11 +605,12 @@ Current MVP includes:
 - successful run completion;
 - post-run resurrection screen;
 - upgrade screen;
+- run-to-run difficulty scaling;
+- scaling summary screen;
 - upgrade purchasing and next-run start.
 
 Current MVP intentionally does **not** include:
 
-- difficulty scaling;
 - polished AI;
 - dedicated game-over/restart UI;
 - final win condition;
@@ -512,7 +618,7 @@ Current MVP intentionally does **not** include:
 - audio;
 - animation frames.
 
-## 16. Technical Direction for Codex
+## 17. Technical Direction for Codex
 
 Current stack:
 
@@ -544,7 +650,7 @@ src/
 
 Keep gameplay values in config files when possible. If a value is currently hardcoded in implementation, either move it to config in a future code task or document it as an implementation constant.
 
-## 17. Current Balance Config Files
+## 18. Current Balance Config Files
 
 ```text
 src/config/balance/cart.ts
@@ -553,13 +659,14 @@ src/config/balance/input.ts
 src/config/balance/resources.ts
 src/config/balance/resurrection.ts
 src/config/balance/run.ts
+src/config/balance/scaling.ts
 src/config/balance/spawn.ts
 src/config/balance/upgrades.ts
 src/config/balance/warriors.ts
 src/config/balance/wolves.ts
 ```
 
-## 18. Key TODOs / Open Questions
+## 19. Key TODOs / Open Questions
 
 1. What are the max values for warrior/gatherer stat upgrades?
 2. What is the maximum number of warriors/gatherers?
@@ -568,4 +675,4 @@ src/config/balance/wolves.ts
 5. Should gatherers auto-retarget nearby resources after depletion/despawn?
 6. Should unresurrected permanently lost units be represented in any long-term memorial/stat UI?
 7. Should a dedicated game-over screen and restart flow be added next?
-8. Should difficulty scaling values from older design notes be reintroduced as config?
+8. Should scaling summary include exact numeric before/after values?

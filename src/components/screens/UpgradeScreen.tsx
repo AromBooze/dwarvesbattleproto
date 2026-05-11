@@ -40,7 +40,7 @@ export function UpgradeScreen({ state, onBuyUpgrade, onStartNextRun }: UpgradeSc
         <header className="upgrade-header">
           <div>
             <h1>Между заездами</h1>
-            <p>🪵 {state.wood} &nbsp; ⛓️ {state.ore}</p>
+            <p>Заезд: {state.runNumber} &nbsp; 🪵 {state.wood} &nbsp; ⛓️ {state.ore}</p>
           </div>
           <button className="next-run-button" type="button" onClick={onStartNextRun}>
             Следующий заезд
