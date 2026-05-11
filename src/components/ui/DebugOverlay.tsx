@@ -19,8 +19,12 @@ Gaze mode ${debug.gazeMode}
 Targets in cone ${debug.targetsInsideCone}
 Selected ${debug.selectedTarget}
 Last input ${debug.lastCommandInput}
+Wood ${debug.wood}
+Ore ${debug.ore}
 Warriors ${debug.availableWarriors}/${debug.assignedWarriors}
 Gatherers ${debug.availableGatherers}/${debug.assignedGatherers}
+Active gatherers ${debug.activeGatherers}
+Gathering ${debug.gatheredResource}
 Assignment ${debug.lastAssignmentResult}`}
     </div>
   );

@@ -1,4 +1,4 @@
-import { Container, Sprite, Texture } from "pixi.js";
+import { Container, Graphics, Sprite, Texture } from "pixi.js";
 import {
   DESPAWN_OFFSCREEN_PADDING,
   SPAWN_OFFSCREEN_PADDING,
@@ -25,6 +25,10 @@ type ScreenBounds = {
   height: number;
 };
 
+type DespawnResult = {
+  removedResourceIds: string[];
+};
+
 export type SpawnDebugState = {
   activeResources: number;
   activeWolves: number;
@@ -45,7 +49,9 @@ export class SpawnSystem {
     private readonly textures: SpriteTextureMap,
   ) {}
 
-  update(deltaSeconds: number, scrollSpeed: number, screen: ScreenBounds) {
+  update(deltaSeconds: number, scrollSpeed: number, screen: ScreenBounds): DespawnResult {
+    const removedResourceIds: string[] = [];
+
     this.nextResourceSpawn -= deltaSeconds;
     this.nextWolfSpawn -= deltaSeconds;
 
@@ -59,11 +65,15 @@ export class SpawnSystem {
       this.nextWolfSpawn += WOLF_PACK_SPAWN_INTERVAL_SECONDS;
     }
 
-    this.moveAndDespawn(deltaSeconds, scrollSpeed);
+    this.moveAndDespawn(deltaSeconds, scrollSpeed, removedResourceIds);
+    this.updateResourceVisuals();
+
+    return { removedResourceIds };
   }
 
   destroy() {
     for (const resource of this.resources) {
+      resource.progressBar.destroy();
       resource.sprite.destroy();
     }
 
@@ -92,10 +102,31 @@ export class SpawnSystem {
     return this.wolves;
   }
 
+  removeResource(resourceId: string) {
+    const index = this.resources.findIndex((resource) => resource.id === resourceId);
+
+    if (index < 0) {
+      return false;
+    }
+
+    const [resource] = this.resources.splice(index, 1);
+    resource.progressBar.destroy();
+    resource.sprite.destroy();
+    return true;
+  }
+
+  updateResourceVisuals() {
+    for (const resource of this.resources) {
+      this.drawProgressBar(resource);
+    }
+  }
+
   private spawnResource(screen: ScreenBounds) {
     const type: ResourceType = Math.random() < WOOD_SPAWN_CHANCE ? "wood" : "ore";
     const texture = type === "wood" ? this.textures.tree : this.textures.ore;
     const sprite = this.createWorldSprite(texture);
+    const progressBar = new Graphics();
+    const maxAmount = randomIntInclusive(RESOURCE_AMOUNT_MIN, RESOURCE_AMOUNT_MAX);
 
     sprite.position.set(
       screen.width + SPAWN_OFFSCREEN_PADDING,
@@ -105,11 +136,16 @@ export class SpawnSystem {
     this.resources.push({
       id: `resource-${this.nextResourceId}`,
       sprite,
+      progressBar,
       type,
-      amount: randomIntInclusive(RESOURCE_AMOUNT_MIN, RESOURCE_AMOUNT_MAX),
+      remainingAmount: maxAmount,
+      maxAmount,
+      assignedGathererIds: new Set(),
     });
     this.nextResourceId += 1;
     this.layer.addChild(sprite);
+    this.layer.addChild(progressBar);
+    this.drawProgressBar(this.resources[this.resources.length - 1]);
   }
 
   private spawnWolfPack(screen: ScreenBounds) {
@@ -137,11 +173,29 @@ export class SpawnSystem {
     }
   }
 
-  private moveAndDespawn(deltaSeconds: number, scrollSpeed: number) {
+  private moveAndDespawn(
+    deltaSeconds: number,
+    scrollSpeed: number,
+    removedResourceIds: string[],
+  ) {
     const movement = scrollSpeed * deltaSeconds;
 
-    this.despawnMovedEntities(this.resources, movement);
+    this.despawnMovedResources(this.resources, movement, removedResourceIds);
     this.despawnMovedEntities(this.wolves, movement);
+  }
+
+  private despawnMovedResources(entities: ResourceEntity[], movement: number, removedResourceIds: string[]) {
+    for (let index = entities.length - 1; index >= 0; index -= 1) {
+      const entity = entities[index];
+      entity.sprite.x -= movement;
+
+      if (entity.sprite.x < -DESPAWN_OFFSCREEN_PADDING) {
+        removedResourceIds.push(entity.id);
+        entity.progressBar.destroy();
+        entity.sprite.destroy();
+        entities.splice(index, 1);
+      }
+    }
   }
 
   private despawnMovedEntities<T extends { sprite: Sprite }>(entities: T[], movement: number) {
@@ -161,6 +215,20 @@ export class SpawnSystem {
     sprite.anchor.set(0.5, 0.85);
     sprite.roundPixels = true;
     return sprite;
+  }
+
+  private drawProgressBar(resource: ResourceEntity) {
+    const width = 28;
+    const height = 4;
+    const fillPercent = Math.max(0, resource.remainingAmount / resource.maxAmount);
+    const x = Math.round(resource.sprite.x - width / 2);
+    const y = Math.round(resource.sprite.y - resource.sprite.height - 8);
+
+    resource.progressBar.clear();
+    resource.progressBar.rect(x, y, width, height);
+    resource.progressBar.fill({ color: 0x141414, alpha: 0.9 });
+    resource.progressBar.rect(x + 1, y + 1, Math.max(0, width - 2) * fillPercent, height - 2);
+    resource.progressBar.fill({ color: resource.type === "wood" ? 0x56d05f : 0xb8c7d9, alpha: 0.95 });
   }
 
   private randomPlayableY(screenHeight: number) {

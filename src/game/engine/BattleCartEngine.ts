@@ -6,7 +6,10 @@ import {
   Text,
   Texture,
 } from "pixi.js";
-import { GATHERER_RUN_SPEED_MULTIPLIER } from "../../config/balance/gatherers";
+import {
+  GATHERER_GATHERING_RATE_PER_SECOND,
+  GATHERER_RUN_SPEED_MULTIPLIER,
+} from "../../config/balance/gatherers";
 import {
   GAZE_CONE_ANGLE_DEGREES,
   GAZE_CONE_LENGTH_MULTIPLIER,
@@ -81,7 +84,11 @@ export class BattleCartEngine {
   private lastCommandInput: CommandInput = "none";
   private lastAssignmentResult = "none";
   private selectedTargetId: string | null = null;
+  private wood = 0;
+  private ore = 0;
+  private gatheredResource = "none";
   private scrollOffset = 0;
+  private elapsedTime = 0;
   private frameCount = 0;
   private fpsElapsed = 0;
   private fps = 0;
@@ -144,14 +151,17 @@ export class BattleCartEngine {
   private tick() {
     const deltaSeconds = this.app.ticker.deltaMS / 1000;
     const scrollSpeed = this.getScrollSpeed();
+    this.elapsedTime += deltaSeconds;
     this.scrollOffset = (this.scrollOffset + scrollSpeed * deltaSeconds) % GRID_SIZE;
 
     this.drawGrid();
-    this.spawnSystem?.update(deltaSeconds, scrollSpeed, {
+    const spawnResult = this.spawnSystem?.update(deltaSeconds, scrollSpeed, {
       width: this.app.screen.width,
       height: this.app.screen.height,
     });
+    this.handleRemovedResources(spawnResult?.removedResourceIds ?? []);
     this.updateUnits(deltaSeconds, scrollSpeed);
+    this.spawnSystem?.updateResourceVisuals();
     this.updateGaze();
     this.updateFps(deltaSeconds);
     this.publishDebug(scrollSpeed);
@@ -489,6 +499,7 @@ export class BattleCartEngine {
     gatherer.state = "movingToResource";
     gatherer.targetId = target.id;
     gatherer.marker.visible = false;
+    target.assignedGathererIds.add(gatherer.id);
     this.lastAssignmentResult = `${gatherer.id} -> ${target.type}:${target.id}`;
   }
 
@@ -595,13 +606,64 @@ export class BattleCartEngine {
     }
 
     if (unit.state === "gathering") {
-      unit.sprite.position.set(targetPoint.x - 14, targetPoint.y + 10);
+      const bounce = Math.sin(this.elapsedTime * 12 + unit.slotIndex) * 2;
+      unit.sprite.position.set(targetPoint.x - 14, targetPoint.y + 10 + bounce);
       unit.marker.visible = true;
+      this.gatherFromResource(unit, target, deltaSeconds);
+    }
+  }
+
+  private gatherFromResource(unit: GathererUnit, resource: ResourceEntity, deltaSeconds: number) {
+    if (resource.remainingAmount <= 0) {
+      return;
+    }
+
+    const amount = Math.min(
+      resource.remainingAmount,
+      GATHERER_GATHERING_RATE_PER_SECOND * deltaSeconds,
+    );
+
+    resource.remainingAmount -= amount;
+
+    if (resource.type === "wood") {
+      this.wood += amount;
+    } else {
+      this.ore += amount;
+    }
+
+    this.gatheredResource = `${resource.type}:${resource.id}`;
+    resource.sprite.alpha = 0.78 + Math.sin(this.elapsedTime * 18) * 0.18;
+
+    if (resource.remainingAmount <= 0) {
+      this.depleteResource(resource.id);
+      unit.state = "returning";
+      unit.targetId = null;
+      unit.marker.visible = false;
+    }
+  }
+
+  private depleteResource(resourceId: string) {
+    const resource = this.findResource(resourceId);
+
+    if (!resource) {
+      return;
+    }
+
+    this.returnGatherersAssignedTo(resourceId);
+    this.spawnSystem?.removeResource(resourceId);
+    this.lastAssignmentResult = `${resource.type}:${resource.id} depleted`;
+
+    if (this.selectedTargetId === resourceId) {
+      this.selectedTargetId = null;
+      this.selectedTarget = "none";
     }
   }
 
   private recallGatherers() {
     for (const gatherer of this.gatherers) {
+      if (gatherer.targetId) {
+        this.findResource(gatherer.targetId)?.assignedGathererIds.delete(gatherer.id);
+      }
       gatherer.state = "returning";
       gatherer.targetId = null;
       gatherer.marker.visible = false;
@@ -616,6 +678,33 @@ export class BattleCartEngine {
       warrior.marker.visible = false;
     }
     this.lastAssignmentResult = "warriors recalled";
+  }
+
+  private handleRemovedResources(resourceIds: string[]) {
+    for (const resourceId of resourceIds) {
+      this.returnGatherersAssignedTo(resourceId);
+
+      if (this.selectedTargetId === resourceId) {
+        this.selectedTargetId = null;
+        this.selectedTarget = "none";
+      }
+
+      if (this.gatheredResource.includes(resourceId)) {
+        this.gatheredResource = "none";
+      }
+    }
+  }
+
+  private returnGatherersAssignedTo(resourceId: string) {
+    for (const gatherer of this.gatherers) {
+      if (gatherer.targetId !== resourceId) {
+        continue;
+      }
+
+      gatherer.state = "returning";
+      gatherer.targetId = null;
+      gatherer.marker.visible = false;
+    }
   }
 
   private moveUnitToFormation<TState extends string>(
@@ -810,6 +899,7 @@ export class BattleCartEngine {
     const availableGatherers = this.gatherers.filter((unit) =>
       unit.state === "formation" || unit.state === "returning"
     ).length;
+    const activeGatherers = this.gatherers.filter((unit) => unit.state === "gathering").length;
 
     this.onDebug({
       fps: this.fps,
@@ -825,11 +915,15 @@ export class BattleCartEngine {
       targetsInsideCone: this.targetsInsideCone,
       selectedTarget: this.selectedTarget,
       lastCommandInput: this.lastCommandInput,
+      wood: Math.floor(this.wood),
+      ore: Math.floor(this.ore),
       availableWarriors,
       assignedWarriors: this.warriors.length - availableWarriors,
       availableGatherers,
       assignedGatherers: this.gatherers.length - availableGatherers,
       lastAssignmentResult: this.lastAssignmentResult,
+      activeGatherers,
+      gatheredResource: activeGatherers > 0 ? this.gatheredResource : "none",
     });
   }
 }

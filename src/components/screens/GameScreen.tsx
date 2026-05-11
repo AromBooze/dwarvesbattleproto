@@ -28,7 +28,7 @@ export function GameScreen() {
       <div className="top-overlay">
         <DebugOverlay debug={debug} />
         <TimerOverlay />
-        <ResourceOverlay />
+        <ResourceOverlay wood={debug.wood} ore={debug.ore} />
       </div>
     </main>
   );
