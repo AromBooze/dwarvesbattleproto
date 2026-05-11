@@ -29,6 +29,10 @@ img {
   image-rendering: pixelated;
 }
 
+button {
+  font: inherit;
+}
+
 .game-screen {
   position: relative;
   width: 100vw;
@@ -102,6 +106,145 @@ img {
   white-space: pre;
 }
 
+.upgrade-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.82);
+  pointer-events: auto;
+}
+
+.upgrade-shell {
+  width: min(1120px, 100%);
+  max-height: min(820px, 92vh);
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: #090909;
+  padding: 20px;
+}
+
+.upgrade-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.upgrade-header h1,
+.upgrade-group h2,
+.upgrade-header p {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.upgrade-header h1 {
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.upgrade-header p {
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 800;
+}
+
+.next-run-button,
+.upgrade-button {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #f6f6f6;
+  background: #1e1e1e;
+  cursor: pointer;
+}
+
+.next-run-button {
+  min-height: 42px;
+  padding: 0 16px;
+  font-weight: 800;
+}
+
+.next-run-button:hover,
+.upgrade-button:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.48);
+  background: #292929;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.stat-grid > div {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.stat-grid strong,
+.upgrade-group h2 {
+  color: #ffffff;
+  font-size: 15px;
+}
+
+.stat-grid span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+}
+
+.upgrade-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.upgrade-group {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.upgrade-button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px;
+  text-align: left;
+}
+
+.upgrade-button > span {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.upgrade-button > span:last-child {
+  justify-items: end;
+  text-align: right;
+}
+
+.upgrade-button small {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+}
+
+.upgrade-button:disabled {
+  color: rgba(255, 255, 255, 0.45);
+  cursor: not-allowed;
+}
+
+.upgrade-button:disabled small,
+.upgrade-button:disabled b {
+  color: rgba(255, 255, 255, 0.38);
+}
+
 @media (max-width: 720px) {
   .top-overlay {
     grid-template-columns: 1fr auto;
@@ -118,5 +261,20 @@ img {
 
   .resource-panel {
     justify-self: end;
+  }
+
+  .upgrade-screen {
+    padding: 8px;
+  }
+
+  .upgrade-header,
+  .upgrade-groups,
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .upgrade-header {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

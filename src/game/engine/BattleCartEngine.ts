@@ -20,7 +20,12 @@ import {
   GAZE_CONE_ANGLE_DEGREES,
   GAZE_CONE_LENGTH_MULTIPLIER,
 } from "../../config/balance/input";
-import { WORLD_SCROLL_SECONDS_PER_SCREEN } from "../../config/balance/run";
+import { RUN_DURATION_SECONDS, WORLD_SCROLL_SECONDS_PER_SCREEN } from "../../config/balance/run";
+import {
+  UPGRADE_DEFINITIONS,
+  type ResourceCost,
+  type UpgradeId,
+} from "../../config/balance/upgrades";
 import {
   WARRIOR_ATTACKS_PER_SECOND,
   WARRIOR_BASE_HP,
@@ -51,10 +56,13 @@ import { loadSprites } from "../rendering/loadSprites";
 import { spriteManifest } from "../rendering/spriteManifest";
 import { SpawnSystem } from "../systems/SpawnSystem";
 import type { DebugState } from "../state/debugState";
+import type { UpgradeState } from "../state/upgradeState";
 import type { SpriteTextureMap } from "../../types/sprites";
 import type { ResourceEntity, WolfEntity } from "../entities/worldEntities";
 
 type DebugListener = (state: DebugState) => void;
+type UpgradeListener = (state: UpgradeState) => void;
+type RunPhase = "running" | "upgrade" | "gameOver";
 
 const GRID_SIZE = 32;
 const UNIT_ARRIVAL_DISTANCE = 14;
@@ -113,9 +121,23 @@ export class BattleCartEngine {
   private selectedTargetId: string | null = null;
   private wood = 0;
   private ore = 0;
+  private runPhase: RunPhase = "running";
+  private runTimeRemaining = RUN_DURATION_SECONDS;
+  private runCompleted = false;
+  private cartMaxHp = CART_BASE_HP;
   private cartHp = CART_BASE_HP;
   private cartArmor = CART_ARMOR;
   private cartSpikes = CART_SPIKES_DAMAGE_PER_SECOND;
+  private warriorCount = warriorFormation.length;
+  private warriorMaxHp = WARRIOR_BASE_HP;
+  private warriorDamage = WARRIOR_DAMAGE;
+  private warriorAttackSpeed = WARRIOR_ATTACKS_PER_SECOND;
+  private warriorRegeneration = 0;
+  private gathererCount = gathererFormation.length;
+  private gathererMaxHp = GATHERER_BASE_HP;
+  private gathererGatheringRate = GATHERER_GATHERING_RATE_PER_SECOND;
+  private gathererRegeneration = 0;
+  private readonly upgradePurchases = new Map<UpgradeId, number>();
   private cartFlashUntil = 0;
   private gameOver = false;
   private deadWarriors = 0;
@@ -131,6 +153,7 @@ export class BattleCartEngine {
   constructor(
     private readonly host: HTMLElement,
     onDebug: DebugListener,
+    private readonly onUpgrade: UpgradeListener,
   ) {
     this.onDebug = onDebug;
   }
@@ -166,6 +189,7 @@ export class BattleCartEngine {
     this.resizeObserver = new ResizeObserver(() => this.layoutScene());
     this.resizeObserver.observe(this.host);
     this.layoutScene();
+    this.publishUpgradeState();
     this.app.ticker.add(this.tick, this);
   }
 
@@ -182,6 +206,56 @@ export class BattleCartEngine {
     }
   }
 
+  buyUpgrade(upgradeId: UpgradeId) {
+    if (this.runPhase !== "upgrade") {
+      return;
+    }
+
+    const definition = UPGRADE_DEFINITIONS.find((upgrade) => upgrade.id === upgradeId);
+
+    if (!definition) {
+      return;
+    }
+
+    const cost = this.getUpgradeCost(upgradeId, definition.baseCost);
+
+    if (this.isUpgradeAtMax(upgradeId, definition.max) || !this.canAfford(cost)) {
+      this.publishUpgradeState();
+      return;
+    }
+
+    this.wood -= cost.wood ?? 0;
+    this.ore -= cost.ore ?? 0;
+    this.upgradePurchases.set(upgradeId, (this.upgradePurchases.get(upgradeId) ?? 0) + 1);
+    this.applyUpgrade(upgradeId);
+    this.restoreForBetweenRun();
+    this.publishUpgradeState();
+    this.publishDebug(this.getScrollSpeed());
+  }
+
+  startNextRun() {
+    if (this.runPhase !== "upgrade") {
+      return;
+    }
+
+    this.runPhase = "running";
+    this.runTimeRemaining = RUN_DURATION_SECONDS;
+    this.runCompleted = false;
+    this.gameOver = false;
+    this.deadWarriors = 0;
+    this.deadGatherers = 0;
+    this.targetsInsideCone = 0;
+    this.selectedTarget = "none";
+    this.selectedTargetId = null;
+    this.lastAssignmentResult = "next run started";
+    this.spawnSystem?.clearWorld();
+    this.restoreForBetweenRun();
+    this.createStaticScene();
+    this.layoutScene();
+    this.publishUpgradeState();
+    this.publishDebug(this.getScrollSpeed());
+  }
+
   private tick() {
     const deltaSeconds = this.app.ticker.deltaMS / 1000;
     const scrollSpeed = this.getScrollSpeed();
@@ -189,17 +263,24 @@ export class BattleCartEngine {
     this.scrollOffset = (this.scrollOffset + scrollSpeed * deltaSeconds) % GRID_SIZE;
 
     this.drawGrid();
-    const spawnResult = this.spawnSystem?.update(deltaSeconds, scrollSpeed, {
-      width: this.app.screen.width,
-      height: this.app.screen.height,
-    });
-    this.handleRemovedResources(spawnResult?.removedResourceIds ?? []);
-    if (!this.gameOver) {
+
+    if (this.runPhase === "running") {
+      this.runTimeRemaining = Math.max(0, this.runTimeRemaining - deltaSeconds);
+      const spawnResult = this.spawnSystem?.update(deltaSeconds, scrollSpeed, {
+        width: this.app.screen.width,
+        height: this.app.screen.height,
+      });
+      this.handleRemovedResources(spawnResult?.removedResourceIds ?? []);
       this.scrollCombatAnchors(deltaSeconds, scrollSpeed);
       this.updateUnits(deltaSeconds, scrollSpeed);
       this.updateWolves(deltaSeconds, scrollSpeed);
       this.updateCartVisual();
+
+      if (this.runTimeRemaining <= 0 && this.cartHp > 0) {
+        this.completeRun();
+      }
     }
+
     this.spawnSystem?.updateResourceVisuals();
     this.updateGaze();
     this.updateFps(deltaSeconds);
@@ -211,7 +292,9 @@ export class BattleCartEngine {
       return;
     }
 
-    this.spritesLayer.removeChildren();
+    for (const child of this.spritesLayer.removeChildren()) {
+      child.destroy();
+    }
     this.cartSprite = null;
     this.warriors = [];
     this.gatherers = [];
@@ -220,8 +303,8 @@ export class BattleCartEngine {
     this.cartSprite = cart;
     this.spritesLayer.addChild(cart);
 
-    for (const [index, slot] of warriorFormation.entries()) {
-      const warrior = this.createSprite(this.textures[slot.sprite], 1);
+    for (let index = 0; index < this.warriorCount; index += 1) {
+      const warrior = this.createSprite(this.textures.warrior, 1);
       const marker = this.createUnitMarker("бой");
       marker.visible = false;
       this.warriors.push({
@@ -231,8 +314,8 @@ export class BattleCartEngine {
         state: "formation",
         targetId: null,
         marker,
-        hp: WARRIOR_BASE_HP,
-        maxHp: WARRIOR_BASE_HP,
+        hp: this.warriorMaxHp,
+        maxHp: this.warriorMaxHp,
         attackCooldown: 0,
         flashUntil: 0,
         combatAnchor: null,
@@ -241,8 +324,8 @@ export class BattleCartEngine {
       this.spritesLayer.addChild(marker);
     }
 
-    for (const [index, slot] of gathererFormation.entries()) {
-      const gatherer = this.createSprite(this.textures[slot.sprite], 1);
+    for (let index = 0; index < this.gathererCount; index += 1) {
+      const gatherer = this.createSprite(this.textures.gatherer, 1);
       const marker = this.createUnitMarker("добыча");
       marker.visible = false;
       this.gatherers.push({
@@ -252,8 +335,8 @@ export class BattleCartEngine {
         state: "formation",
         targetId: null,
         marker,
-        hp: GATHERER_BASE_HP,
-        maxHp: GATHERER_BASE_HP,
+        hp: this.gathererMaxHp,
+        maxHp: this.gathererMaxHp,
         attackCooldown: 0,
         flashUntil: 0,
         combatAnchor: null,
@@ -596,6 +679,7 @@ export class BattleCartEngine {
     }
 
     unit.attackCooldown = Math.max(0, unit.attackCooldown - deltaSeconds);
+    this.regenerateUnit(unit, this.warriorRegeneration, deltaSeconds);
 
     if (unit.state === "formation") {
       this.snapUnitToFormation(unit, this.getWarriorFormationPoint(unit.slotIndex));
@@ -634,6 +718,8 @@ export class BattleCartEngine {
     if (unit.state === "dead" || unit.hp <= 0) {
       return;
     }
+
+    this.regenerateUnit(unit, this.gathererRegeneration, deltaSeconds);
 
     if (unit.state === "formation") {
       this.snapUnitToFormation(unit, this.getGathererFormationPoint(unit.slotIndex));
@@ -679,7 +765,7 @@ export class BattleCartEngine {
 
     const amount = Math.min(
       resource.remainingAmount,
-      GATHERER_GATHERING_RATE_PER_SECOND * deltaSeconds,
+      this.gathererGatheringRate * deltaSeconds,
     );
 
     resource.remainingAmount -= amount;
@@ -864,10 +950,10 @@ export class BattleCartEngine {
       return;
     }
 
-    wolf.hp -= WARRIOR_DAMAGE;
+    wolf.hp -= this.warriorDamage;
     wolf.flashUntil = this.elapsedTime + DAMAGE_FLASH_SECONDS;
     this.bumpSprite(warrior.sprite, -4);
-    warrior.attackCooldown = 1 / WARRIOR_ATTACKS_PER_SECOND;
+    warrior.attackCooldown = 1 / this.warriorAttackSpeed;
 
     if (wolf.hp <= 0) {
       this.killWolf(wolf, warrior);
@@ -930,7 +1016,9 @@ export class BattleCartEngine {
 
     if (this.cartHp <= 0) {
       this.gameOver = true;
+      this.runPhase = "gameOver";
       this.lastAssignmentResult = "game over";
+      this.publishUpgradeState();
     }
   }
 
@@ -1178,6 +1266,18 @@ export class BattleCartEngine {
     return remainingDistance - step <= UNIT_ARRIVAL_DISTANCE;
   }
 
+  private regenerateUnit<TState extends string>(
+    unit: UnitBase<TState>,
+    regeneration: number,
+    deltaSeconds: number,
+  ) {
+    if (regeneration <= 0 || unit.hp >= unit.maxHp) {
+      return;
+    }
+
+    unit.hp = Math.min(unit.maxHp, unit.hp + regeneration * deltaSeconds);
+  }
+
   private findResource(id: string | null) {
     return (this.spawnSystem?.getResources() ?? []).find((resource) => resource.id === id);
   }
@@ -1202,7 +1302,10 @@ export class BattleCartEngine {
   }
 
   private getWarriorFormationPoint(index: number): Point {
-    const slot = warriorFormation[index];
+    const slot = warriorFormation[index] ?? {
+      xOffset: 82 + (index % 4) * 28,
+      yOffset: -54 + Math.floor(index / 4) * 24,
+    };
     const cart = this.getCartFormationCenter();
 
     return {
@@ -1212,7 +1315,10 @@ export class BattleCartEngine {
   }
 
   private getGathererFormationPoint(index: number): Point {
-    const slot = gathererFormation[index];
+    const slot = gathererFormation[index] ?? {
+      xOffset: -86 - (index % 3) * 28,
+      yOffset: -42 + Math.floor(index / 3) * 24,
+    };
     const cart = this.getCartFormationCenter();
 
     return {
@@ -1264,6 +1370,192 @@ export class BattleCartEngine {
 
     this.cartSprite.position.set(formation.x, formation.y);
     this.cartSprite.tint = 0xffffff;
+  }
+
+  private completeRun() {
+    this.runPhase = "upgrade";
+    this.runCompleted = true;
+    this.lastAssignmentResult = "run completed";
+    this.currentMode = "default";
+    this.targetsInsideCone = 0;
+    this.selectedTarget = "none";
+    this.selectedTargetId = null;
+    this.spawnSystem?.clearWorld();
+    this.restoreForBetweenRun();
+    this.createStaticScene();
+    this.layoutScene();
+    this.publishUpgradeState();
+  }
+
+  private restoreForBetweenRun() {
+    this.cartHp = this.cartMaxHp;
+    this.cartFlashUntil = 0;
+
+    for (const warrior of this.warriors) {
+      warrior.hp = this.warriorMaxHp;
+      warrior.maxHp = this.warriorMaxHp;
+      warrior.attackCooldown = 0;
+      warrior.flashUntil = 0;
+      warrior.combatAnchor = null;
+      warrior.state = "formation";
+      warrior.targetId = null;
+      warrior.sprite.visible = true;
+      warrior.sprite.texture = this.textures?.warrior ?? warrior.sprite.texture;
+      warrior.marker.visible = false;
+    }
+
+    for (const gatherer of this.gatherers) {
+      gatherer.hp = this.gathererMaxHp;
+      gatherer.maxHp = this.gathererMaxHp;
+      gatherer.attackCooldown = 0;
+      gatherer.flashUntil = 0;
+      gatherer.combatAnchor = null;
+      gatherer.state = "formation";
+      gatherer.targetId = null;
+      gatherer.sprite.visible = true;
+      gatherer.sprite.texture = this.textures?.gatherer ?? gatherer.sprite.texture;
+      gatherer.marker.visible = false;
+    }
+  }
+
+  private applyUpgrade(upgradeId: UpgradeId) {
+    if (upgradeId === "cartHp") {
+      this.cartMaxHp += 1;
+      return;
+    }
+
+    if (upgradeId === "cartArmor") {
+      this.cartArmor += 1;
+      return;
+    }
+
+    if (upgradeId === "cartSpikes") {
+      this.cartSpikes += 1;
+      return;
+    }
+
+    if (upgradeId === "warriorHp") {
+      this.warriorMaxHp += 1;
+      return;
+    }
+
+    if (upgradeId === "warriorDamage") {
+      this.warriorDamage += 1;
+      return;
+    }
+
+    if (upgradeId === "warriorAttackSpeed") {
+      this.warriorAttackSpeed += 1;
+      return;
+    }
+
+    if (upgradeId === "warriorRegeneration") {
+      this.warriorRegeneration += 1;
+      return;
+    }
+
+    if (upgradeId === "hireWarrior") {
+      this.warriorCount += 1;
+      return;
+    }
+
+    if (upgradeId === "gathererGathering") {
+      this.gathererGatheringRate += 1;
+      return;
+    }
+
+    if (upgradeId === "gathererHp") {
+      this.gathererMaxHp += 1;
+      return;
+    }
+
+    if (upgradeId === "gathererRegeneration") {
+      this.gathererRegeneration += 1;
+      return;
+    }
+
+    if (upgradeId === "hireGatherer") {
+      this.gathererCount += 1;
+    }
+  }
+
+  private getUpgradeCost(upgradeId: UpgradeId, baseCost: ResourceCost) {
+    const purchaseCount = this.upgradePurchases.get(upgradeId) ?? 0;
+
+    return {
+      wood: baseCost.wood ? baseCost.wood + purchaseCount : undefined,
+      ore: baseCost.ore ? baseCost.ore + purchaseCount : undefined,
+    };
+  }
+
+  private canAfford(cost: ResourceCost) {
+    return Math.floor(this.wood) >= (cost.wood ?? 0) && Math.floor(this.ore) >= (cost.ore ?? 0);
+  }
+
+  private isUpgradeAtMax(upgradeId: UpgradeId, max?: number) {
+    if (max === undefined) {
+      return false;
+    }
+
+    return this.getUpgradeValue(upgradeId) >= max;
+  }
+
+  private getUpgradeValue(upgradeId: UpgradeId) {
+    if (upgradeId === "cartHp") {
+      return this.cartMaxHp;
+    }
+
+    if (upgradeId === "cartArmor") {
+      return this.cartArmor;
+    }
+
+    if (upgradeId === "cartSpikes") {
+      return this.cartSpikes;
+    }
+
+    return this.upgradePurchases.get(upgradeId) ?? 0;
+  }
+
+  private publishUpgradeState() {
+    this.onUpgrade({
+      phase: this.runPhase,
+      wood: Math.floor(this.wood),
+      ore: Math.floor(this.ore),
+      cart: {
+        hp: Math.ceil(this.cartHp),
+        maxHp: this.cartMaxHp,
+        armor: this.cartArmor,
+        spikes: this.cartSpikes,
+      },
+      warriors: {
+        count: this.warriorCount,
+        hp: this.warriorMaxHp,
+        damage: this.warriorDamage,
+        attackSpeed: this.warriorAttackSpeed,
+        regeneration: this.warriorRegeneration,
+      },
+      gatherers: {
+        count: this.gathererCount,
+        hp: this.gathererMaxHp,
+        gathering: this.gathererGatheringRate,
+        regeneration: this.gathererRegeneration,
+      },
+      upgrades: UPGRADE_DEFINITIONS.map((definition) => {
+        const cost = this.getUpgradeCost(definition.id, definition.baseCost);
+        const atMax = this.isUpgradeAtMax(definition.id, definition.max);
+        const affordable = this.canAfford(cost);
+
+        return {
+          id: definition.id,
+          group: definition.group,
+          label: definition.label,
+          effect: definition.effect,
+          cost,
+          disabled: atMax || !affordable,
+          disabledReason: atMax ? "Максимум" : affordable ? null : "Недостаточно ресурсов",
+        };
+      }),
+    });
   }
 
   private bumpSprite(sprite: Sprite, _xOffset: number) {
@@ -1406,7 +1698,7 @@ export class BattleCartEngine {
       wood: Math.floor(this.wood),
       ore: Math.floor(this.ore),
       cartHp: Math.ceil(this.cartHp),
-      cartMaxHp: CART_BASE_HP,
+      cartMaxHp: this.cartMaxHp,
       livingWarriors,
       totalWarriors: this.warriors.length,
       livingGatherers,
@@ -1423,6 +1715,9 @@ export class BattleCartEngine {
       deadWarriors: this.deadWarriors,
       deadGatherers: this.deadGatherers,
       gameOver: this.gameOver,
+      runPhase: this.runPhase,
+      runTimeRemaining: this.runTimeRemaining,
+      runCompleted: this.runCompleted,
     });
   }
 }

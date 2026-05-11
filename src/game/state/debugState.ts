@@ -32,6 +32,9 @@ export type DebugState = {
   deadWarriors: number;
   deadGatherers: number;
   gameOver: boolean;
+  runPhase: "running" | "upgrade" | "gameOver";
+  runTimeRemaining: number;
+  runCompleted: boolean;
 };
 
 export const defaultDebugState: DebugState = {
@@ -68,4 +71,7 @@ export const defaultDebugState: DebugState = {
   deadWarriors: 0,
   deadGatherers: 0,
   gameOver: false,
+  runPhase: "running",
+  runTimeRemaining: 90,
+  runCompleted: false,
 };

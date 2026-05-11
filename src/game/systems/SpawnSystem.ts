@@ -85,6 +85,10 @@ export class SpawnSystem {
   }
 
   destroy() {
+    this.clearWorld();
+  }
+
+  clearWorld() {
     for (const resource of this.resources) {
       resource.progressBar.destroy();
       resource.sprite.destroy();
