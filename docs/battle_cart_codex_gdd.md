@@ -1,31 +1,31 @@
 # Battle Cart Prototype — Codex-Friendly GDD
 
+This document describes the **current implemented prototype state**. For balance values, the source of truth is `src/config/balance/*`.
+
 ## 1. High Concept
 
 A 2D real-time escort/defense prototype.
 
-The player protects a cart moving through a dangerous road. The cart visually stays near the center of the screen while the background, resources, and enemies move from right to left.
+The player protects a cart moving through a dangerous road. The cart visually stays near the center of the screen while the background grid, resources, enemies, death effects, and combat anchors move from right to left.
 
-The player commands two groups using a directional “gaze cone” from the cart:
+The player commands two groups using a directional gaze cone from the cart:
 
 - **Warriors** attack wolves.
 - **Gatherers** collect wood and ore.
 
-Between runs, the player spends resources on upgrades.
+Between successful runs, the player spends resources on upgrades.
 
 ## 2. Prototype Visual Direction
 
-- 2D game.
+- 2D browser-first game using Vite, React, TypeScript, and PixiJS.
 - All game entities are static sprites.
-- No frame-by-frame character animation required for MVP.
-- Use simple effects instead:
-  - attack: sprite jumps slightly / bumps toward target;
-  - taking damage: brief flash/shake;
-  - death: sprite replaced with blood puddle;
-  - gathering: simple progress bar or small hit effect;
+- No frame-by-frame character animation is implemented.
+- Use simple effects:
+  - attack: quick scale bump;
+  - taking damage: brief red flash;
+  - death: blood puddle death effect;
+  - gathering: progress bar and small sprite bounce;
   - cart damage: shake/flash.
-
-MVP visuals can use placeholder sprites or simple shapes first.
 
 ## Visual Assets / Sprite Mapping
 
@@ -36,101 +36,85 @@ Source files:
 - `Sprites/battle_cart_sprite_atlas.json`
 - `Sprites/battle_cart_sprite_atlas_README.md`
 
-Codex should prefer atlas rendering with `Sprites/battle_cart_sprite_atlas.png` and `Sprites/battle_cart_sprite_atlas.json`, but may use extracted PNG files if simpler during prototype implementation.
+Current implementation uses extracted PNG files from `Sprites/individual_sprites`. Codex may later switch to atlas rendering with `Sprites/battle_cart_sprite_atlas.png` and `Sprites/battle_cart_sprite_atlas.json`, but should preserve these sprite IDs.
 
 | Gameplay Object | Sprite ID | File | Notes |
 |---|---|---|---|
-| Cart | `cart` | `Sprites/individual_sprites/cart.png` | Main cart object. Use larger scale (~4 unit sprites). Keep centered on screen. |
+| Cart | `cart` | `Sprites/individual_sprites/cart.png` | Main cart object. Kept near screen center. |
 | Warrior | `warrior` | `Sprites/individual_sprites/warrior.png` | Dwarf warrior with helmet and sword. Formation in front of cart. |
 | Gatherer | `gatherer` | `Sprites/individual_sprites/gatherer.png` | Dwarf gatherer with pickaxe. Formation behind cart. |
-| Ore Resource | `ore` | `Sprites/individual_sprites/ore.png` | Resource node. |
-| Tree Resource | `tree` | `Sprites/individual_sprites/tree.png` | Resource node. |
+| Ore Resource | `ore` | `Sprites/individual_sprites/ore.png` | Ore resource node. |
+| Tree Resource | `tree` | `Sprites/individual_sprites/tree.png` | Wood resource node. |
 | Wolf | `wolf` | `Sprites/individual_sprites/wolf.png` | Generic wolf enemy. |
-| Death Effect | `blood_puddle` | `Sprites/individual_sprites/blood_puddle.png` | Replace dead warrior/gatherer/wolf sprite with blood puddle. |
+| Death Effect | `blood_puddle` | `Sprites/individual_sprites/blood_puddle.png` | World-attached death effect for dead warriors/gatherers/wolves. |
 
 ### Rendering Rules
 
-- Cart visually stays near screen center.
-- Units move relative to cart.
-- Resources and wolves scroll right-to-left.
-- Use pixelated rendering: `image-rendering: pixelated`.
-- Use nearest-neighbor scaling.
+| Rule | Current Implementation |
+|---|---|
+| Cart | Visually near screen center. |
+| Formation units | Cart-relative. |
+| Resources | World-attached; scroll right-to-left. |
+| Wolves | Spawn world-attached; then move by target/chase logic. |
+| Combat positions | World-attached combat anchor; anchor scrolls right-to-left. |
+| Blood puddles | World-attached; scroll right-to-left and fade. |
+| Pixel art | `image-rendering: pixelated`; Pixi textures use nearest scaling. |
 
-### Sprite Sizes
-
-Recommended default:
-- units/resources/wolf: ~32x32
-- cart: ~128x64
-
-Keep proportions visually readable.
-
-### Animation Philosophy
-
-Do NOT implement frame animation.
-
-Use simple sprite effects:
-- attack: quick hop/bump
-- damage: flash/shake
-- death: replace with blood puddle
-- gathering: tiny bounce or hit effect
-
-### Placeholder Environment
-
-Environment may remain:
-- black background
-- scrolling grid
-- enough motion to communicate cart speed
-
-Current art style target:
-"Simple NES-inspired pixel art"
+Current art style target: **Simple NES-inspired pixel art**.
 
 ## 3. Core Gameplay Loop
 
 1. Run starts.
-2. Cart moves forward automatically.
+2. Cart stays visually centered while grid scrolls.
 3. Resources and wolf packs spawn from the right side.
 4. Player commands gatherers and warriors using gaze direction.
-5. Player survives until run timer ends.
-6. Dead warriors/gatherers are restored.
-7. Cart and units are fully healed.
-8. Player spends wood/ore on upgrades.
-9. Player starts the next run.
-10. Difficulty increases before each next run.
+5. Player survives until the run timer ends.
+6. If the cart survives, remaining resources/wolves are cleared.
+7. Dead warriors/gatherers are restored.
+8. Cart and units are fully healed.
+9. Player spends wood/ore on upgrades.
+10. Player starts the next run.
+
+Current note: next-run difficulty scaling is **not implemented yet**.
 
 ## 4. Win / Lose Conditions
 
-### Lose
-The player loses if cart HP reaches 0 or below.
+| Condition | Current Behavior |
+|---|---|
+| Cart HP <= 0 | Run phase becomes `gameOver`; spawning and simulation stop. |
+| Timer reaches 0 while cart HP > 0 | Run completes; upgrade screen opens. |
+| Final victory | Not implemented. Game is intended to be endless. |
 
-### Run Complete
-A run ends successfully when the run timer reaches 0.
+## 5. Run Duration and Timer
 
-### Game Victory
-There is no final victory condition.
+| Parameter | Current Value | Source |
+|---|---:|---|
+| Base run duration | 90 seconds | `RUN_DURATION_SECONDS` |
+| Timer display | `M:SS` countdown | React UI |
+| World scroll speed | 1 screen width per 16 seconds | `WORLD_SCROLL_SECONDS_PER_SCREEN` |
+| Scroll speed formula | `screenWidth / WORLD_SCROLL_SECONDS_PER_SCREEN` | engine |
+| Between-run upgrade phase | yes, on successful run only | engine |
+| Difficulty scaling | not implemented | TODO |
 
-The game is endless and continues until the player loses.
+When the run completes successfully:
 
-## 5. Run Settings
+- spawning stops;
+- active combat/gathering stops because world entities are cleared;
+- remaining wolves/resources/death effects are removed from screen;
+- dead units are restored;
+- cart, warriors, and gatherers are healed;
+- resources and purchased upgrades persist;
+- upgrade screen opens.
 
-| Parameter | Value |
-|---|---:|
-| Base run duration | 90 seconds |
-| Cart/world scroll speed | 1 screen width per 16 seconds |
-| First run difficulty scaling | none |
-| Between-run upgrade phase | yes |
-
-## 6. Cart
-
-The cart is the central object the player protects. The cart visually stays near the center of the screen.
+## 6. Cart Stats and Upgrades
 
 ### Cart Base Stats
 
-| Stat | Base Value | Notes |
-|---|---:|---|
-| HP | 20 | Lose if HP <= 0 |
-| Armor | 0 | Each armor point reduces incoming damage by 10% |
-| Spikes | 0 | Deals damage per second to each wolf attacking the cart |
-| World scroll speed | 1 screen / 16 sec | Background/resources/enemies move right-to-left |
+| Stat | Current Base Value | Source | Notes |
+|---|---:|---|---|
+| HP / Max HP | 20 | `CART_BASE_HP` | Cart death at HP <= 0. |
+| Armor | 0 | `CART_ARMOR` | Reduces incoming cart damage. |
+| Spikes DPS | 0 | `CART_SPIKES_DAMAGE_PER_SECOND` | Damages wolves attacking cart when > 0. |
 
 ### Cart Damage Formula
 
@@ -138,393 +122,359 @@ The cart is the central object the player protects. The cart visually stays near
 finalDamage = incomingDamage * (1 - armor * 0.1)
 ```
 
-TBD:
-- Should armor allow damage to reach 0 at armor 10?
-- Current max armor is 4, so max reduction is 40%.
-
-## 7. Warriors
-
-Warriors walk in formation in front of the cart by default. When commanded, they sprint toward a target wolf and fight until one side dies.
-
-### Starting Warriors
-
-| Parameter | Value |
-|---|---:|
-| Starting warriors | 5 |
-
-### Warrior Base Stats
-
-| Stat | Base Value | Notes |
-|---|---:|---|
-| Damage | 2 | Damage per attack |
-| Attack speed | 2/sec | Attacks per second while fighting |
-| HP | 5 | Damage needed to kill warrior |
-| Regeneration | 1/sec | Restores HP up to max HP |
-| Run speed multiplier | 4x | Applied while executing command / returning |
-
-### Warrior Behavior
-
-Default state:
-- stays in formation in front of cart;
-- moves with cart/world speed visually.
-
-Commanded state:
-- moves toward assigned wolf at boosted speed;
-- attacks wolf when close enough;
-- continues combat until warrior or wolf dies.
-
-After target dies:
-- if valid wolf targets exist, warrior automatically retargets;
-- if no valid wolf targets exist, warrior returns to formation.
-
-New player commands always override the previous warrior task.
-
-TBD:
-- Exact “nearby wolf” search radius.
-
-## 8. Gatherers
-
-Gatherers walk in formation behind the cart by default. When commanded, they sprint toward a resource node and collect it.
-
-### Starting Gatherers
-
-| Parameter | Value |
-|---|---:|
-| Starting gatherers | 2 |
-
-### Gatherer Base Stats
-
-| Stat | Base Value | Notes |
-|---|---:|---|
-| Gathering | 2/sec | Resource units gathered per second |
-| HP | 3 | Damage needed to kill gatherer |
-| Regeneration | 1/sec | Restores HP up to max HP |
-| Run speed multiplier | 3x | Applied while executing command / returning |
-
-### Gatherer Behavior
-
-Default state:
-- stays in formation behind cart.
-
-Commanded state:
-- moves toward assigned resource at boosted speed;
-- gathers until resource is depleted or disappears;
-- collected resource is added to player pool over time;
-- if target resource leaves screen, gatherer searches for a new valid resource target;
-- if no valid resource target exists, gatherer returns to formation.
-
-New player commands always override the previous gatherer task.
-
-If attacked:
-- gatherer tries to flee back to the cart;
-- wolves may continue attacking based on targeting logic.
-
-TBD:
-- Can gatherers be killed while fleeing?
-- Can warriors intercept wolves attacking a gatherer automatically?
-
-## 9. Resources
-
-Two resource types exist:
-
-| Resource | Icon Suggestion | Used For |
-|---|---|---|
-| Wood | 🪵 | cart HP, spikes, gatherer upgrades |
-| Ore | ⛓️ | armor, warrior upgrades |
-
-Resources are attached to the scrolling world and move from right to left.
-
-### Resource Spawning
-
-| Parameter | Value |
-|---|---:|
-| Base spawn interval | 4 sec |
-| Spawn side | right, offscreen |
-| Spawn vertical position | random |
-| Wood chance | 50% |
-| Ore chance | 50% |
-| Resource amount | random 1–10 |
-
-### Resource Despawn
-
-A resource is destroyed if:
-- it is depleted;
-- it leaves the left side of the screen.
-
-If a gatherer was gathering a resource that despawns:
-- gatherer returns to formation.
-
-## 10. Wolves
-
-Wolves spawn in packs from the right side and attack the nearest valid target.
-
-### Wolf Pack Spawning
-
-| Parameter | Value |
-|---|---:|
-| Base spawn interval | 6 sec |
-| Spawn side | right, offscreen |
-| Spawn vertical position | random |
-| Base pack size | random 3–14 |
-
-### Wolf Base Stats
-
-| Stat | Base Value | Notes |
-|---|---:|---|
-| HP | 2 | Can scale between runs |
-| Damage | 1 | Damage per attack |
-| Attack speed | 1/sec | Attacks per second |
-| Movement speed | Warrior commanded speed * 0.5 | Based on warrior sprint speed |
-
-### Wolf Target Priority
-
-1. Nearest warriors or gatherers.
-2. Cart, if no units block/attract them.
-
-### Wolf Combat Behavior
-
-- Wolves move toward target.
-- When close enough, wolves stop moving relative to target and attack.
-- If target dies, wolf chooses next target by priority.
-- If attacking the cart, spikes deal damage per second to each attacking wolf.
-
-TBD:
-- Whether wolf pack acts as individual wolves or shared group AI.
-- Exact target detection radius.
-- Exact attack range.
-
-## 11. Gaze Control
-
-The player commands units using a gaze cone from the cart.
-
-### Gaze Shape
-
-| Parameter | Value |
-|---|---:|
-| Origin | cart center |
-| Base angle | 25 degrees |
-| Direction | cart center toward mouse cursor |
-| Default color | gray, transparent |
-| Gatherer command color | blue |
-| Warrior command color | red |
-
-The gaze cone is visually represented as a triangle/cone.
-
-### Gatherer Command
-
-Input:
-- Hold/press LMB to activate blue gaze.
-- Click LMB on valid resource inside gaze.
-
-Behavior:
-- nearest valid resource inside gaze is selected;
-- one available gatherer is sent to gather it;
-- repeated clicks send additional gatherers.
-
-Cancel:
-- `Q` cancels gatherer commands;
-- gatherers return to cart formation.
-
-### Warrior Command
-
-Input:
-- Hold/press RMB to activate red gaze.
-- Click RMB on valid wolf inside gaze.
-
-Behavior:
-- nearest valid wolf inside gaze is selected;
-- one available warrior is sent to fight it;
-- repeated clicks send additional warriors.
-
-Cancel:
-- `W` cancels warrior commands;
-- warriors return to cart formation.
-
-### Global Recall
-
-Input:
-- `E`
-
-Behavior:
-- all warriors and gatherers stop current tasks;
-- all return to cart formation.
-
-### Invalid Command Rule
-
-If no valid target exists inside gaze:
-- command does nothing.
-
-## 12. Between-Run Upgrade Phase
-
-When a run ends successfully:
-
-1. All killed warriors and gatherers are restored.
-2. All warriors, gatherers, and cart are healed to maximum HP.
-3. Upgrade menu opens.
-4. Player can spend wood/ore.
-5. Player starts next run.
-
-Upgrades persist until game over / new game.
-
-## 13. Upgrade Balance
+Current max armor is 4, so current max reduction is 40%.
 
 ### Cart Upgrades
 
-| Upgrade | Effect | Max | Cost |
-|---|---:|---:|---|
-| Cart HP | +1 HP | 40 total HP | 2 wood |
-| Cart Armor | +1 armor | 4 armor | 4 ore |
-| Cart Spikes | +1 spikes DPS | 5 spikes | 3 wood + 3 ore |
+| Upgrade ID | Effect | Max | Base Cost |
+|---|---|---:|---|
+| `cartHp` | Cart max HP +1 | 40 total HP | 2 wood |
+| `cartArmor` | Armor +1 | 4 armor | 4 ore |
+| `cartSpikes` | Spikes DPS +1 | 5 spikes | 3 wood + 3 ore |
+
+## 7. Warrior Stats and Upgrades
+
+### Starting Warriors
+
+| Parameter | Current Value | Source |
+|---|---:|---|
+| Starting warriors | 5 | `warriorFormation.length` |
+
+Hired warriors are added to the next run and use generated extra formation slots.
+
+### Warrior Base Stats
+
+| Stat | Current Base Value | Source | Notes |
+|---|---:|---|---|
+| HP | 7 | `WARRIOR_BASE_HP` | Current code/config value. |
+| Damage | 2 | `WARRIOR_DAMAGE` | Damage per attack. |
+| Attack speed | 2/sec | `WARRIOR_ATTACKS_PER_SECOND` | Attacks per second while engaged. |
+| Regeneration | 0/sec | engine progression state | Increased only by upgrade. |
+| Run speed multiplier | 4x | `WARRIOR_RUN_SPEED_MULTIPLIER` | Uses world scroll speed as base. |
+
+### Warrior States
+
+| State | Current Meaning |
+|---|---|
+| `formation` | Cart-relative formation in front of cart. |
+| `movingToWolf` | Moving toward assigned wolf. |
+| `engaged` | Locked to wolf via world-attached combat anchor. |
+| `returning` | Moving back to formation. |
+| `dead` | Removed from active unit play until successful run completion. |
 
 ### Warrior Upgrades
 
-| Upgrade | Effect | Max | Cost |
-|---|---:|---:|---|
-| Warrior HP | +1 HP | TBD | 4 ore |
-| Warrior Damage | +1 damage | TBD | 4 ore |
-| Warrior Attack Speed | +1 attack/sec | TBD | 4 ore |
-| Warrior Regeneration | +1 regen/sec | TBD | 6 ore |
-| Hire Warrior | +1 warrior | TBD | 8 ore |
+| Upgrade ID | Effect | Max | Base Cost |
+|---|---|---:|---|
+| `warriorHp` | Warrior HP +1 | TODO | 4 ore |
+| `warriorDamage` | Warrior damage +1 | TODO | 4 ore |
+| `warriorAttackSpeed` | Warrior attack speed +1/sec | TODO | 4 ore |
+| `warriorRegeneration` | Warrior regeneration +1/sec | TODO | 6 ore |
+| `hireWarrior` | Warrior count +1 | TODO | 8 ore |
+
+## 8. Gatherer Stats and Upgrades
+
+### Starting Gatherers
+
+| Parameter | Current Value | Source |
+|---|---:|---|
+| Starting gatherers | 2 | `gathererFormation.length` |
+
+Hired gatherers are added to the next run and use generated extra formation slots.
+
+### Gatherer Base Stats
+
+| Stat | Current Base Value | Source | Notes |
+|---|---:|---|---|
+| HP | 3 | `GATHERER_BASE_HP` | Current code/config value. |
+| Gathering rate | 2/sec | `GATHERER_GATHERING_RATE_PER_SECOND` | Resource units gathered per second per gatherer. |
+| Regeneration | 0/sec | engine progression state | Increased only by upgrade. |
+| Run speed multiplier | 3x | `GATHERER_RUN_SPEED_MULTIPLIER` | Uses world scroll speed as base. |
+
+### Gatherer States
+
+| State | Current Meaning |
+|---|---|
+| `formation` | Cart-relative formation behind cart. |
+| `movingToResource` | Moving toward assigned resource. |
+| `gathering` | Gathering assigned resource. |
+| `fleeing` | Returning toward formation after wolf targeting/attack. |
+| `returning` | Moving back to formation. |
+| `dead` | Removed from active unit play until successful run completion. |
 
 ### Gatherer Upgrades
 
-| Upgrade | Effect | Max | Cost |
-|---|---:|---:|---|
-| Gatherer Gathering | +1 gather/sec | TBD | 4 wood |
-| Gatherer HP | +1 HP | TBD | 4 wood |
-| Gatherer Regeneration | +1 regen/sec | TBD | 6 wood |
-| Hire Gatherer | +1 gatherer | TBD | 8 wood |
+| Upgrade ID | Effect | Max | Base Cost |
+|---|---|---:|---|
+| `gathererGathering` | Gathering rate +1/sec | TODO | 4 wood |
+| `gathererHp` | Gatherer HP +1 | TODO | 4 wood |
+| `gathererRegeneration` | Gatherer regeneration +1/sec | TODO | 6 wood |
+| `hireGatherer` | Gatherer count +1 | TODO | 8 wood |
 
-### Upgrade Cost Scaling
+## 9. Resource Spawning and Gathering
 
-After every purchase of a specific upgrade, that upgrade's cost increases by **+1 unit of each required resource**.
+### Resources
+
+| Resource | Sprite ID | Adds To | Used For |
+|---|---|---|---|
+| Wood | `tree` | wood | cart HP, spikes, gatherer upgrades |
+| Ore | `ore` | ore | armor, warrior upgrades |
+
+### Resource Spawning
+
+| Parameter | Current Value | Source |
+|---|---:|---|
+| Spawn interval | 4 seconds | `RESOURCE_SPAWN_INTERVAL_SECONDS` |
+| Spawn side | right, offscreen | implementation |
+| Spawn X padding | screen width + 48 px | `SPAWN_OFFSCREEN_PADDING` |
+| Despawn X | less than -64 px | `DESPAWN_OFFSCREEN_PADDING` |
+| Spawn Y min | 112 px | `SPAWN_VERTICAL_TOP_PADDING` |
+| Spawn Y max | screen height - 48 px | `SPAWN_VERTICAL_BOTTOM_PADDING` |
+| Wood chance | 50% | `WOOD_SPAWN_CHANCE` |
+| Ore chance | 50% | derived |
+| Resource amount | random integer 1-10 | `RESOURCE_AMOUNT_MIN/MAX` |
+
+### Gathering Formula
+
+Each gathering gatherer applies gathering every frame:
+
+```text
+gatheredThisFrame = min(resource.remainingAmount, gathererGatheringRate * deltaSeconds)
+resource.remainingAmount -= gatheredThisFrame
+playerResource += gatheredThisFrame
+```
+
+Current display floors wood/ore to integers. Multiple gatherers on the same resource each apply their own gathering rate, so total rate is additive.
+
+### Resource Removal
+
+A resource is removed if:
+
+- `remainingAmount <= 0`;
+- it scrolls beyond the left despawn boundary.
+
+Gatherers assigned to a removed resource return to formation.
+
+## 10. Wolf Spawning and Combat
+
+### Wolf Pack Spawning
+
+| Parameter | Current Value | Source |
+|---|---:|---|
+| Spawn interval | 6 seconds | `WOLF_PACK_SPAWN_INTERVAL_SECONDS` |
+| Spawn side | right, offscreen | implementation |
+| Spawn X padding | screen width + 48 px | `SPAWN_OFFSCREEN_PADDING` |
+| Spawn Y min | 112 px | `SPAWN_VERTICAL_TOP_PADDING` |
+| Spawn Y max | screen height - 48 px | `SPAWN_VERTICAL_BOTTOM_PADDING` |
+| Pack size | random integer 3-7 | `WOLF_PACK_SIZE_MIN/MAX` |
+| Pack layout | 4 columns, 28 px X spacing, 22 px Y spacing | implementation |
+
+### Wolf Base Stats
+
+| Stat | Current Base Value | Source | Notes |
+|---|---:|---|---|
+| HP | 2 | `WOLF_BASE_HP` | Removed from active wolf list at HP <= 0. |
+| Damage | 1 | `WOLF_DAMAGE` | Damage per attack. |
+| Attack speed | 1/sec | `WOLF_ATTACKS_PER_SECOND` | Attacks per second. |
+| Movement speed multiplier | 1x | `WOLF_MOVEMENT_SPEED_MULTIPLIER` | Uses world scroll speed as base. |
+
+### Combat Ranges and Feedback
+
+| Parameter | Current Value | Source |
+|---|---:|---|
+| Unit arrival distance | 14 px | engine constant |
+| Wolf/warrior attack range | 24 px | engine constant |
+| Wolf/cart attack range | 34 px | engine constant |
+| Cart spikes active distance | 40 px from cart center | engine constant |
+| Damage flash duration | 0.14 sec | engine constant |
+| Cart hit flash duration | 0.18 sec | engine constant |
+| Blood puddle duration | 4 sec fade | `SpawnSystem` |
+
+### Combat Formulas
+
+Warrior attacks wolf:
+
+```text
+wolf.hp -= warriorDamage
+warriorAttackCooldown = 1 / warriorAttackSpeed
+```
+
+Wolf attacks warrior/gatherer/cart:
+
+```text
+target.hp -= wolfDamage
+wolfAttackCooldown = 1 / wolfAttackSpeed
+```
+
+Cart armor applies only to cart damage:
+
+```text
+finalCartDamage = wolfDamage * (1 - cartArmor * 0.1)
+```
+
+Cart spikes:
+
+```text
+if cartSpikes > 0 and wolf is targeting cart and within 40 px:
+  wolf.hp -= cartSpikes * deltaSeconds
+```
+
+### Targeting
+
+| Behavior | Current Implementation |
+|---|---|
+| Wolf needs target | Chooses nearest living warrior or gatherer. |
+| No living unit target | Targets cart. |
+| Wolf targets gatherer | Gatherer stops gathering and flees toward formation/cart. |
+| Warrior reaches wolf | Warrior and wolf become locked to a shared world-attached combat anchor. |
+| Wolf dies | Blood puddle appears; warrior auto-retargets nearest wolf or returns. |
+| Warrior dies | Blood puddle appears; wolf clears target and retargets. |
+
+TODO:
+- Exact intended max targeting radius. Current implementation searches all living units.
+- Whether wolf despawn should occur if wolves somehow leave the left side. Current implementation focuses on chase/attack behavior.
+
+## 11. Gaze Control
+
+| Parameter | Current Value | Source |
+|---|---:|---|
+| Origin | cart center | engine |
+| Angle | 25 degrees | `GAZE_CONE_ANGLE_DEGREES` |
+| Length | screen diagonal * 1.35 | `GAZE_CONE_LENGTH_MULTIPLIER` |
+| Direct click fallback radius | 128 px | engine constant |
+| Neutral color | gray transparent | engine |
+| Gather mode color | blue transparent | engine |
+| Attack mode color | red transparent | engine |
+
+### Current Input Rules
+
+| Input | Current Behavior |
+|---|---|
+| LMB click | Persistent gather mode; select nearest resource in cone or click radius; assign one available gatherer. |
+| RMB click | Persistent attack mode; select nearest wolf in cone or click radius; assign one available warrior. |
+| `Q` | Recall gatherers; cancels gather mode if active. |
+| `W` | Recall warriors; cancels attack mode if active. |
+| `E` | Recall all units; returns gaze mode to neutral. |
+| RMB context menu | Disabled. |
+
+Available units are units in `formation` or `returning`.
+
+## 12. Upgrade Costs and Cost Scaling
+
+Upgrade definitions are in `src/config/balance/upgrades.ts`.
+
+After every purchase of a specific upgrade, that upgrade's cost increases by **+1 of each required resource**.
 
 Examples:
-- Warrior Damage starts at 4 ore.
-  - first purchase: 4 ore
-  - second purchase: 5 ore
-  - third purchase: 6 ore
 
-- Cart Spikes starts at 3 wood + 3 ore.
-  - first purchase: 3 wood + 3 ore
-  - second purchase: 4 wood + 4 ore
-  - third purchase: 5 wood + 5 ore
+| Upgrade | Purchase | Cost |
+|---|---:|---|
+| Warrior Damage | 1st | 4 ore |
+| Warrior Damage | 2nd | 5 ore |
+| Warrior Damage | 3rd | 6 ore |
+| Cart Spikes | 1st | 3 wood + 3 ore |
+| Cart Spikes | 2nd | 4 wood + 4 ore |
+| Cart Spikes | 3rd | 5 wood + 5 ore |
 
-TBD:
-- Max values for warrior/gatherer stats.
+Upgrade button disabled reasons:
 
-## 14. Endless Run Rules
-
-- The game is endless.
-- There is no final victory screen.
-- The player continues starting new runs until the cart is destroyed.
-- Run number should be tracked and displayed.
-- Difficulty scaling applies before every next run except the first.
-
-## 15. Next Run Difficulty Scaling
-
-Before each next run, except the first run, apply difficulty increases.
-
-### Scaling Rules
-
-| System | Rule |
+| Condition | Displayed Reason |
 |---|---|
-| Wolf pack size | min and max +1 |
-| Resource amount | min and max +1 |
-| Wolf spawn interval | -0.3 sec per run, minimum 2 sec |
-| Resource spawn interval | -0.2 sec per run, minimum 1 sec |
-| Wolf stat scaling | Randomly choose one: wolf HP +1, wolf damage +1, or wolf attack speed +1 |
+| Not enough resources | `Недостаточно ресурсов` |
+| Max value reached | `Максимум` |
 
-TBD:
-- Should resource scaling be a reward/comeback mechanic or difficulty pacing?
-- Should the random wolf stat scaling be displayed to the player?
+## 13. Current Implementation Status
 
-## 16. UI Screens
+### Implemented
 
-### Main Run Screen
+| System | Status |
+|---|---|
+| Vite + React + TypeScript + PixiJS foundation | Implemented |
+| Sprite loading from extracted PNGs | Implemented |
+| Pixelated rendering / nearest scaling | Implemented |
+| Scrolling grid background | Implemented |
+| Cart centered on screen | Implemented |
+| Warrior/gatherer formations | Implemented |
+| Resource spawning and despawn | Implemented |
+| Wolf pack spawning | Implemented |
+| Persistent gaze modes | Implemented |
+| Cone target detection/highlighting | Implemented |
+| Unit assignment | Implemented |
+| Resource gathering | Implemented |
+| Basic warrior/wolf/cart/gatherer combat | Implemented |
+| Blood puddle death effects | Implemented |
+| World-attached combat anchors | Implemented |
+| Run timer | Implemented |
+| Successful run completion transition | Implemented |
+| Between-run restoration | Implemented |
+| Upgrade screen | Implemented |
+| Upgrade purchases and cost scaling | Implemented |
+| Hiring extra warriors/gatherers | Implemented |
 
-Must show:
-- cart in center;
-- warriors in front formation;
-- gatherers behind formation;
-- resources moving right-to-left;
-- wolves moving/attacking;
-- gaze cone from cart to mouse;
-- top resource panel;
-- run timer;
-- cart HP;
-- unit counts.
+### Partially Implemented
 
-### Upgrade Screen
+| System | Current State |
+|---|---|
+| Game over | Run phase becomes `gameOver`; dedicated game-over screen/restart UI is not implemented. |
+| Regeneration upgrades | Stat and per-frame healing are implemented; no visual feedback. |
+| Spikes | Config/stat/damage hook implemented; starts at 0 and only affects wolves targeting cart within range. |
+| Wolf AI | Simple nearest living unit or cart targeting only. |
+| Auto-retargeting | Warriors retarget nearest wolf after wolf death; gatherer retargeting is not implemented. |
+| Upgrade max values | Cart maxes implemented; warrior/gatherer maxes are TODO. |
 
-Must show:
-- available upgrades;
-- current stats;
-- upgrade effect;
-- cost;
-- current resources;
-- “Следующий заезд” button.
+### Not Implemented Yet
 
-### Game Over Screen
+| System | Notes |
+|---|---|
+| Difficulty scaling between runs | Not implemented; next run uses same base difficulty. |
+| Run number display | Not implemented. |
+| Dedicated game-over screen | Not implemented. |
+| Restart/new-game flow | Not implemented. |
+| Save/load | Not implemented. |
+| Audio | Not implemented. |
+| Complex pathfinding/steering | Not implemented. |
+| Tile maps/procedural terrain | Not implemented. |
+| Frame animation | Not implemented. |
+| More enemy/resource types | Not implemented. |
+| Final victory/final boss | Not implemented. |
 
-Must show:
-- defeat message;
-- restart button;
-- run reached;
-- resources collected if available.
+## 14. Current MVP Scope
 
-## 17. MVP Implementation Scope
+Current MVP includes:
 
-### Must Have
+- browser-playable PixiJS game scene;
+- cart and formation units;
+- scrolling world illusion;
+- spawning resources and wolves;
+- persistent gaze control;
+- click assignment;
+- gathering;
+- basic combat;
+- cart death/game-over run phase;
+- 90-second run timer;
+- successful run completion and upgrade screen;
+- upgrade purchasing and next-run start.
 
-- Vite + React + TypeScript.
-- 2D game surface using canvas or DOM sprites.
-- Cart centered on screen.
-- Scrolling background illusion.
-- Spawn resources.
-- Spawn wolf packs.
-- Warriors and gatherers as simple sprites.
-- Gaze cone control.
-- Assign warriors to wolves.
-- Assign gatherers to resources.
-- Basic combat.
-- Basic gathering.
-- Cart damage and death.
-- Run timer.
-- Upgrade screen.
-- Difficulty scaling between runs.
+Current MVP intentionally does **not** include:
 
-### Nice To Have Later
+- difficulty scaling;
+- polished AI;
+- dedicated game-over/restart UI;
+- final win condition;
+- save system;
+- audio;
+- animation frames.
 
-- Better sprite art.
-- Audio.
-- Screen shake polish.
-- Better AI steering.
-- Smooth formation behavior.
-- Improved hit effects.
-- More enemy types.
-- More resource types.
-- Final boss / final run.
+## 15. Technical Direction for Codex
 
-### Do Not Implement Yet
+Current stack:
 
-- Complex pathfinding.
-- Tile maps.
-- Save system.
-- Multiplayer.
-- Inventory.
-- Procedural terrain.
-- Complex animations.
-
-## 18. Technical Direction for Codex
-
-Recommended stack:
 - Vite
 - React
 - TypeScript
-- HTML Canvas
+- PixiJS
 
-Suggested architecture:
+Current architecture:
 
 ```text
 src/
@@ -532,45 +482,42 @@ src/
     ui/
     screens/
   game/
-    loop/
-    systems/
+    engine/
     entities/
-    input/
     rendering/
+    systems/
+    input/
+    state/
   config/
     balance/
+  assets/
   types/
   utils/
 ```
 
-Keep gameplay values in config files.
+Keep gameplay values in config files when possible. If a value is currently hardcoded in implementation, either move it to config in a future code task or document it as an implementation constant.
 
-Separate:
-- rendering;
-- simulation;
-- input;
-- balance;
-- UI screens.
-
-## 19. Balance Config Files
-
-Suggested config split:
+## 16. Current Balance Config Files
 
 ```text
-src/config/balance/cart.json
-src/config/balance/warriors.json
-src/config/balance/gatherers.json
-src/config/balance/wolves.json
-src/config/balance/resources.json
-src/config/balance/upgrades.json
-src/config/balance/runs.json
-src/config/balance/input.json
+src/config/balance/cart.ts
+src/config/balance/gatherers.ts
+src/config/balance/input.ts
+src/config/balance/resources.ts
+src/config/balance/run.ts
+src/config/balance/spawn.ts
+src/config/balance/upgrades.ts
+src/config/balance/warriors.ts
+src/config/balance/wolves.ts
 ```
 
-## 20. Key Open Questions
+## 17. Key TODOs / Open Questions
 
-1. What are the max values for warrior/gatherer upgrades?
-2. Should dead units be restored only after successful runs, or also after losing?
-3. Should cart HP persist between runs before healing, or always full-heal as currently stated?
-4. What are exact auto-retarget search radii for warriors and gatherers?
-5. Should there be a maximum number of warriors/gatherers?
+1. What are the max values for warrior/gatherer stat upgrades?
+2. What is the maximum number of warriors/gatherers?
+3. Should wolves have a finite target acquisition radius?
+4. Should wolves despawn if they leave the left side after future AI changes?
+5. Should gatherers auto-retarget nearby resources after depletion/despawn?
+6. Should dead units be restored after game over, or only after successful runs?
+7. Should a dedicated game-over screen and restart flow be added next?
+8. Should difficulty scaling values from older design notes be reintroduced as config?
