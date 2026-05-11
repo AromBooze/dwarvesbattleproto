@@ -14,7 +14,11 @@ Loaded sprites ${debug.loadedSprites}
 Resources ${debug.activeResources}
 Wolves ${debug.activeWolves}
 Next resource ${debug.nextResourceSpawn.toFixed(1)}s
-Next wolf ${debug.nextWolfSpawn.toFixed(1)}s`}
+Next wolf ${debug.nextWolfSpawn.toFixed(1)}s
+Gaze mode ${debug.gazeMode}
+Targets in cone ${debug.targetsInsideCone}
+Selected ${debug.selectedTarget}
+Last input ${debug.lastCommandInput}`}
     </div>
   );
 }

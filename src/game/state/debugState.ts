@@ -8,6 +8,10 @@ export type DebugState = {
   activeWolves: number;
   nextResourceSpawn: number;
   nextWolfSpawn: number;
+  gazeMode: string;
+  targetsInsideCone: number;
+  selectedTarget: string;
+  lastCommandInput: string;
 };
 
 export const defaultDebugState: DebugState = {
@@ -20,4 +24,8 @@ export const defaultDebugState: DebugState = {
   activeWolves: 0,
   nextResourceSpawn: 0,
   nextWolfSpawn: 0,
+  gazeMode: "default",
+  targetsInsideCone: 0,
+  selectedTarget: "none",
+  lastCommandInput: "none",
 };

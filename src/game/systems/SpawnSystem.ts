@@ -37,6 +37,8 @@ export class SpawnSystem {
   private readonly wolves: WolfEntity[] = [];
   private nextResourceSpawn = RESOURCE_SPAWN_INTERVAL_SECONDS;
   private nextWolfSpawn = WOLF_PACK_SPAWN_INTERVAL_SECONDS;
+  private nextResourceId = 1;
+  private nextWolfId = 1;
 
   constructor(
     private readonly layer: Container,
@@ -82,6 +84,14 @@ export class SpawnSystem {
     };
   }
 
+  getResources() {
+    return this.resources;
+  }
+
+  getWolves() {
+    return this.wolves;
+  }
+
   private spawnResource(screen: ScreenBounds) {
     const type: ResourceType = Math.random() < WOOD_SPAWN_CHANCE ? "wood" : "ore";
     const texture = type === "wood" ? this.textures.tree : this.textures.ore;
@@ -93,10 +103,12 @@ export class SpawnSystem {
     );
 
     this.resources.push({
+      id: `resource-${this.nextResourceId}`,
       sprite,
       type,
       amount: randomIntInclusive(RESOURCE_AMOUNT_MIN, RESOURCE_AMOUNT_MAX),
     });
+    this.nextResourceId += 1;
     this.layer.addChild(sprite);
   }
 
@@ -119,7 +131,8 @@ export class SpawnSystem {
         this.clampPlayableY(baseY + row * ySpacing - ySpacing, screen.height),
       );
 
-      this.wolves.push({ sprite });
+      this.wolves.push({ id: `wolf-${this.nextWolfId}`, sprite });
+      this.nextWolfId += 1;
       this.layer.addChild(sprite);
     }
   }

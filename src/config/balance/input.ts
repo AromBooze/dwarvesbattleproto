@@ -1,0 +1,2 @@
+export const GAZE_CONE_ANGLE_DEGREES = 25;
+export const GAZE_CONE_LENGTH_MULTIPLIER = 1.35;
