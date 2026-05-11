@@ -21,7 +21,6 @@ import {
   type Point,
 } from "../input/gazeGeometry";
 import {
-  getGazeMode,
   type CommandInput,
   type GazeMode,
   type PointerState,
@@ -55,8 +54,6 @@ export class BattleCartEngine {
   private readonly pointer: PointerState = {
     x: 1,
     y: 0,
-    leftDown: false,
-    rightDown: false,
   };
   private currentMode: GazeMode = "default";
   private targetsInsideCone = 0;
@@ -236,53 +233,47 @@ export class BattleCartEngine {
     this.updatePointerPosition(event);
 
     if (event.button === 0) {
-      this.pointer.leftDown = true;
-      this.pointer.rightDown = false;
+      this.currentMode = "gather";
       this.lastCommandInput = "gather-select";
       this.selectNearestTarget("gather");
     }
 
     if (event.button === 2) {
       event.preventDefault();
-      this.pointer.rightDown = true;
-      this.pointer.leftDown = false;
+      this.currentMode = "attack";
       this.lastCommandInput = "attack-select";
       this.selectNearestTarget("attack");
     }
   };
 
-  private readonly handlePointerUp = (event: PointerEvent) => {
-    if (event.button === 0) {
-      this.pointer.leftDown = false;
-    }
-
-    if (event.button === 2) {
-      this.pointer.rightDown = false;
-    }
-  };
+  private readonly handlePointerUp = (_event: PointerEvent) => {};
 
   private readonly handleWindowPointerUp = (event: PointerEvent) => {
     this.handlePointerUp(event);
   };
 
-  private readonly handlePointerLeave = () => {
-    this.pointer.leftDown = false;
-    this.pointer.rightDown = false;
-  };
+  private readonly handlePointerLeave = () => {};
 
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
 
     if (key === "q") {
       this.lastCommandInput = "cancel-gather";
+      if (this.currentMode === "gather") {
+        this.currentMode = "default";
+      }
     }
 
     if (key === "w") {
       this.lastCommandInput = "cancel-warriors";
+      if (this.currentMode === "attack") {
+        this.currentMode = "default";
+      }
     }
 
     if (key === "e") {
       this.lastCommandInput = "global-recall";
+      this.currentMode = "default";
     }
   };
 
@@ -301,7 +292,6 @@ export class BattleCartEngine {
 
   private updateGaze() {
     const cone = this.getGazeCone();
-    this.currentMode = getGazeMode(this.pointer);
     this.drawGazeCone(cone, this.currentMode);
     this.updateTargetHighlights(cone, this.currentMode);
   }
