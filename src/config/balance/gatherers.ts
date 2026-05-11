@@ -1,0 +1,1 @@
+export const GATHERER_RUN_SPEED_MULTIPLIER = 3;

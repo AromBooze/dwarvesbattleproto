@@ -12,6 +12,11 @@ export type DebugState = {
   targetsInsideCone: number;
   selectedTarget: string;
   lastCommandInput: string;
+  availableWarriors: number;
+  assignedWarriors: number;
+  availableGatherers: number;
+  assignedGatherers: number;
+  lastAssignmentResult: string;
 };
 
 export const defaultDebugState: DebugState = {
@@ -28,4 +33,9 @@ export const defaultDebugState: DebugState = {
   targetsInsideCone: 0,
   selectedTarget: "none",
   lastCommandInput: "none",
+  availableWarriors: 0,
+  assignedWarriors: 0,
+  availableGatherers: 0,
+  assignedGatherers: 0,
+  lastAssignmentResult: "none",
 };

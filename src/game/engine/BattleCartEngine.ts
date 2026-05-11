@@ -3,13 +3,16 @@ import {
   Container,
   Graphics,
   Sprite,
+  Text,
   Texture,
 } from "pixi.js";
+import { GATHERER_RUN_SPEED_MULTIPLIER } from "../../config/balance/gatherers";
 import {
   GAZE_CONE_ANGLE_DEGREES,
   GAZE_CONE_LENGTH_MULTIPLIER,
 } from "../../config/balance/input";
 import { WORLD_SCROLL_SECONDS_PER_SCREEN } from "../../config/balance/run";
+import { WARRIOR_RUN_SPEED_MULTIPLIER } from "../../config/balance/warriors";
 import { gathererFormation, warriorFormation } from "../entities/formation";
 import {
   degreesToRadians,
@@ -35,6 +38,23 @@ import type { ResourceEntity, WolfEntity } from "../entities/worldEntities";
 type DebugListener = (state: DebugState) => void;
 
 const GRID_SIZE = 32;
+const UNIT_ARRIVAL_DISTANCE = 14;
+const DIRECT_CLICK_TARGET_RADIUS = 128;
+
+type WarriorState = "formation" | "movingToWolf" | "engaged" | "returning";
+type GathererState = "formation" | "movingToResource" | "gathering" | "returning";
+
+type UnitBase<TState extends string> = {
+  id: string;
+  sprite: Sprite;
+  slotIndex: number;
+  state: TState;
+  targetId: string | null;
+  marker: Text;
+};
+
+type WarriorUnit = UnitBase<WarriorState>;
+type GathererUnit = UnitBase<GathererState>;
 
 export class BattleCartEngine {
   private readonly app = new Application();
@@ -49,8 +69,8 @@ export class BattleCartEngine {
   private canvas: HTMLCanvasElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private cartSprite: Sprite | null = null;
-  private warriorSprites: Sprite[] = [];
-  private gathererSprites: Sprite[] = [];
+  private warriors: WarriorUnit[] = [];
+  private gatherers: GathererUnit[] = [];
   private readonly pointer: PointerState = {
     x: 1,
     y: 0,
@@ -59,6 +79,7 @@ export class BattleCartEngine {
   private targetsInsideCone = 0;
   private selectedTarget = "none";
   private lastCommandInput: CommandInput = "none";
+  private lastAssignmentResult = "none";
   private selectedTargetId: string | null = null;
   private scrollOffset = 0;
   private frameCount = 0;
@@ -130,6 +151,7 @@ export class BattleCartEngine {
       width: this.app.screen.width,
       height: this.app.screen.height,
     });
+    this.updateUnits(deltaSeconds, scrollSpeed);
     this.updateGaze();
     this.updateFps(deltaSeconds);
     this.publishDebug(scrollSpeed);
@@ -142,23 +164,43 @@ export class BattleCartEngine {
 
     this.spritesLayer.removeChildren();
     this.cartSprite = null;
-    this.warriorSprites = [];
-    this.gathererSprites = [];
+    this.warriors = [];
+    this.gatherers = [];
 
     const cart = this.createSprite(this.textures.cart, 1);
     this.cartSprite = cart;
     this.spritesLayer.addChild(cart);
 
-    for (const slot of warriorFormation) {
+    for (const [index, slot] of warriorFormation.entries()) {
       const warrior = this.createSprite(this.textures[slot.sprite], 1);
-      this.warriorSprites.push(warrior);
+      const marker = this.createUnitMarker("бой");
+      marker.visible = false;
+      this.warriors.push({
+        id: `warrior-${index + 1}`,
+        sprite: warrior,
+        slotIndex: index,
+        state: "formation",
+        targetId: null,
+        marker,
+      });
       this.spritesLayer.addChild(warrior);
+      this.spritesLayer.addChild(marker);
     }
 
-    for (const slot of gathererFormation) {
+    for (const [index, slot] of gathererFormation.entries()) {
       const gatherer = this.createSprite(this.textures[slot.sprite], 1);
-      this.gathererSprites.push(gatherer);
+      const marker = this.createUnitMarker("добыча");
+      marker.visible = false;
+      this.gatherers.push({
+        id: `gatherer-${index + 1}`,
+        sprite: gatherer,
+        slotIndex: index,
+        state: "formation",
+        targetId: null,
+        marker,
+      });
       this.spritesLayer.addChild(gatherer);
+      this.spritesLayer.addChild(marker);
     }
   }
 
@@ -168,6 +210,21 @@ export class BattleCartEngine {
     sprite.scale.set(scale);
     sprite.roundPixels = true;
     return sprite;
+  }
+
+  private createUnitMarker(text: string) {
+    const marker = new Text({
+      text,
+      style: {
+        fill: 0xffffff,
+        fontFamily: "Arial, sans-serif",
+        fontSize: 12,
+        fontWeight: "700",
+        stroke: { color: 0x000000, width: 3 },
+      },
+    });
+    marker.anchor.set(0.5, 1);
+    return marker;
   }
 
   private layoutScene() {
@@ -183,14 +240,16 @@ export class BattleCartEngine {
       this.pointer.y = centerY;
     }
 
-    this.warriorSprites.forEach((sprite, index) => {
-      const slot = warriorFormation[index];
-      sprite.position.set(centerX + slot.xOffset, centerY + slot.yOffset);
+    this.warriors.forEach((unit) => {
+      const position = this.getWarriorFormationPoint(unit.slotIndex);
+      unit.sprite.position.set(position.x, position.y);
+      this.updateUnitMarker(unit);
     });
 
-    this.gathererSprites.forEach((sprite, index) => {
-      const slot = gathererFormation[index];
-      sprite.position.set(centerX + slot.xOffset, centerY + slot.yOffset);
+    this.gatherers.forEach((unit) => {
+      const position = this.getGathererFormationPoint(unit.slotIndex);
+      unit.sprite.position.set(position.x, position.y);
+      this.updateUnitMarker(unit);
     });
 
     this.drawGrid();
@@ -235,14 +294,16 @@ export class BattleCartEngine {
     if (event.button === 0) {
       this.currentMode = "gather";
       this.lastCommandInput = "gather-select";
-      this.selectNearestTarget("gather");
+      const target = this.selectNearestTarget("gather");
+      this.assignGatherer(target);
     }
 
     if (event.button === 2) {
       event.preventDefault();
       this.currentMode = "attack";
       this.lastCommandInput = "attack-select";
-      this.selectNearestTarget("attack");
+      const target = this.selectNearestTarget("attack");
+      this.assignWarrior(target);
     }
   };
 
@@ -259,6 +320,7 @@ export class BattleCartEngine {
 
     if (key === "q") {
       this.lastCommandInput = "cancel-gather";
+      this.recallGatherers();
       if (this.currentMode === "gather") {
         this.currentMode = "default";
       }
@@ -266,6 +328,7 @@ export class BattleCartEngine {
 
     if (key === "w") {
       this.lastCommandInput = "cancel-warriors";
+      this.recallWarriors();
       if (this.currentMode === "attack") {
         this.currentMode = "default";
       }
@@ -273,6 +336,8 @@ export class BattleCartEngine {
 
     if (key === "e") {
       this.lastCommandInput = "global-recall";
+      this.recallGatherers();
+      this.recallWarriors();
       this.currentMode = "default";
     }
   };
@@ -332,38 +397,58 @@ export class BattleCartEngine {
       ...resourcesInside.map((resource) => resource.id),
       ...wolvesInside.map((wolf) => wolf.id),
     ]);
+    const assignedTargetIds = this.getAssignedTargetIds();
 
     this.targetsInsideCone = validTargetIds.size;
 
     for (const resource of resources) {
-      this.applyTargetVisual(resource.sprite, validTargetIds.has(resource.id), resource.id, mode);
+      this.applyTargetVisual(
+        resource.sprite,
+        validTargetIds.has(resource.id),
+        assignedTargetIds.has(resource.id),
+        resource.id,
+        mode,
+      );
     }
 
     for (const wolf of wolves) {
-      this.applyTargetVisual(wolf.sprite, validTargetIds.has(wolf.id), wolf.id, mode);
+      this.applyTargetVisual(
+        wolf.sprite,
+        validTargetIds.has(wolf.id),
+        assignedTargetIds.has(wolf.id),
+        wolf.id,
+        mode,
+      );
     }
   }
 
-  private selectNearestTarget(mode: GazeMode) {
+  private selectNearestTarget(mode: GazeMode): ResourceEntity | WolfEntity | null {
     const cone = this.getGazeCone();
     const origin = cone.origin;
 
     if (mode === "gather") {
-      const target = this.getResourcesInsideCone(this.spawnSystem?.getResources() ?? [], cone)
+      const resources = this.spawnSystem?.getResources() ?? [];
+      const target = this.getResourcesInsideCone(resources, cone)
         .sort((a, b) => distance(this.getSpritePoint(a.sprite), origin) - distance(this.getSpritePoint(b.sprite), origin))[0];
+      const fallbackTarget = target ?? this.getNearestResourceNearPointer(resources);
 
-      this.selectedTargetId = target?.id ?? null;
-      this.selectedTarget = target ? `${target.type}:${target.id}` : "none";
-      return;
+      this.selectedTargetId = fallbackTarget?.id ?? null;
+      this.selectedTarget = fallbackTarget ? `${fallbackTarget.type}:${fallbackTarget.id}` : "none";
+      return fallbackTarget ?? null;
     }
 
     if (mode === "attack") {
-      const target = this.getWolvesInsideCone(this.spawnSystem?.getWolves() ?? [], cone)
+      const wolves = this.spawnSystem?.getWolves() ?? [];
+      const target = this.getWolvesInsideCone(wolves, cone)
         .sort((a, b) => distance(this.getSpritePoint(a.sprite), origin) - distance(this.getSpritePoint(b.sprite), origin))[0];
+      const fallbackTarget = target ?? this.getNearestWolfNearPointer(wolves);
 
-      this.selectedTargetId = target?.id ?? null;
-      this.selectedTarget = target ? `wolf:${target.id}` : "none";
+      this.selectedTargetId = fallbackTarget?.id ?? null;
+      this.selectedTarget = fallbackTarget ? `wolf:${fallbackTarget.id}` : "none";
+      return fallbackTarget ?? null;
     }
+
+    return null;
   }
 
   private getResourcesInsideCone(resources: ResourceEntity[], cone: Cone) {
@@ -374,15 +459,267 @@ export class BattleCartEngine {
     return wolves.filter((wolf) => pointInCone(this.getSpritePoint(wolf.sprite), cone));
   }
 
+  private getNearestResourceNearPointer(resources: ResourceEntity[]) {
+    return resources
+      .filter((resource) => distance(this.getSpritePoint(resource.sprite), this.pointer) <= DIRECT_CLICK_TARGET_RADIUS)
+      .sort((a, b) => distance(this.getSpritePoint(a.sprite), this.pointer) - distance(this.getSpritePoint(b.sprite), this.pointer))[0];
+  }
+
+  private getNearestWolfNearPointer(wolves: WolfEntity[]) {
+    return wolves
+      .filter((wolf) => distance(this.getSpritePoint(wolf.sprite), this.pointer) <= DIRECT_CLICK_TARGET_RADIUS)
+      .sort((a, b) => distance(this.getSpritePoint(a.sprite), this.pointer) - distance(this.getSpritePoint(b.sprite), this.pointer))[0];
+  }
+
+  private assignGatherer(target: ResourceEntity | WolfEntity | null) {
+    if (!target || !("type" in target)) {
+      this.lastAssignmentResult = "no resource in cone";
+      return;
+    }
+
+    const gatherer = this.gatherers.find((unit) =>
+      unit.state === "formation" || unit.state === "returning"
+    );
+
+    if (!gatherer) {
+      this.lastAssignmentResult = "no gatherer available";
+      return;
+    }
+
+    gatherer.state = "movingToResource";
+    gatherer.targetId = target.id;
+    gatherer.marker.visible = false;
+    this.lastAssignmentResult = `${gatherer.id} -> ${target.type}:${target.id}`;
+  }
+
+  private assignWarrior(target: ResourceEntity | WolfEntity | null) {
+    if (!target || "type" in target) {
+      this.lastAssignmentResult = "no wolf in cone";
+      return;
+    }
+
+    const warrior = this.warriors.find((unit) =>
+      unit.state === "formation" || unit.state === "returning"
+    );
+
+    if (!warrior) {
+      this.lastAssignmentResult = "no warrior available";
+      return;
+    }
+
+    warrior.state = "movingToWolf";
+    warrior.targetId = target.id;
+    warrior.marker.visible = false;
+    this.lastAssignmentResult = `${warrior.id} -> wolf:${target.id}`;
+  }
+
+  private updateUnits(deltaSeconds: number, scrollSpeed: number) {
+    const warriorSpeed = scrollSpeed * WARRIOR_RUN_SPEED_MULTIPLIER;
+    const gathererSpeed = scrollSpeed * GATHERER_RUN_SPEED_MULTIPLIER;
+
+    for (const warrior of this.warriors) {
+      this.updateWarrior(warrior, deltaSeconds, warriorSpeed);
+      this.updateUnitMarker(warrior);
+    }
+
+    for (const gatherer of this.gatherers) {
+      this.updateGatherer(gatherer, deltaSeconds, gathererSpeed);
+      this.updateUnitMarker(gatherer);
+    }
+  }
+
+  private updateWarrior(unit: WarriorUnit, deltaSeconds: number, speed: number) {
+    if (unit.state === "formation") {
+      this.snapUnitToFormation(unit, this.getWarriorFormationPoint(unit.slotIndex));
+      return;
+    }
+
+    if (unit.state === "returning") {
+      this.moveUnitToFormation(unit, this.getWarriorFormationPoint(unit.slotIndex), deltaSeconds, speed);
+      return;
+    }
+
+    const target = this.findWolf(unit.targetId);
+
+    if (!target) {
+      unit.state = "returning";
+      unit.targetId = null;
+      unit.marker.visible = false;
+      return;
+    }
+
+    const targetPoint = this.getSpritePoint(target.sprite);
+
+    if (unit.state === "movingToWolf") {
+      const arrived = this.moveSpriteToward(unit.sprite, targetPoint, deltaSeconds, speed);
+      if (arrived) {
+        unit.state = "engaged";
+        unit.marker.visible = true;
+      }
+    }
+
+    if (unit.state === "engaged") {
+      unit.sprite.position.set(targetPoint.x - 18, targetPoint.y + 12);
+      unit.marker.visible = true;
+    }
+  }
+
+  private updateGatherer(unit: GathererUnit, deltaSeconds: number, speed: number) {
+    if (unit.state === "formation") {
+      this.snapUnitToFormation(unit, this.getGathererFormationPoint(unit.slotIndex));
+      return;
+    }
+
+    if (unit.state === "returning") {
+      this.moveUnitToFormation(unit, this.getGathererFormationPoint(unit.slotIndex), deltaSeconds, speed);
+      return;
+    }
+
+    const target = this.findResource(unit.targetId);
+
+    if (!target) {
+      unit.state = "returning";
+      unit.targetId = null;
+      unit.marker.visible = false;
+      return;
+    }
+
+    const targetPoint = this.getSpritePoint(target.sprite);
+
+    if (unit.state === "movingToResource") {
+      const arrived = this.moveSpriteToward(unit.sprite, targetPoint, deltaSeconds, speed);
+      if (arrived) {
+        unit.state = "gathering";
+        unit.marker.visible = true;
+      }
+    }
+
+    if (unit.state === "gathering") {
+      unit.sprite.position.set(targetPoint.x - 14, targetPoint.y + 10);
+      unit.marker.visible = true;
+    }
+  }
+
+  private recallGatherers() {
+    for (const gatherer of this.gatherers) {
+      gatherer.state = "returning";
+      gatherer.targetId = null;
+      gatherer.marker.visible = false;
+    }
+    this.lastAssignmentResult = "gatherers recalled";
+  }
+
+  private recallWarriors() {
+    for (const warrior of this.warriors) {
+      warrior.state = "returning";
+      warrior.targetId = null;
+      warrior.marker.visible = false;
+    }
+    this.lastAssignmentResult = "warriors recalled";
+  }
+
+  private moveUnitToFormation<TState extends string>(
+    unit: UnitBase<TState>,
+    destination: Point,
+    deltaSeconds: number,
+    speed: number,
+  ) {
+    const arrived = this.moveSpriteToward(unit.sprite, destination, deltaSeconds, speed);
+
+    if (arrived) {
+      unit.sprite.position.set(destination.x, destination.y);
+      unit.state = "formation" as TState;
+      unit.marker.visible = false;
+    }
+  }
+
+  private snapUnitToFormation<TState extends string>(unit: UnitBase<TState>, position: Point) {
+    unit.sprite.position.set(position.x, position.y);
+    unit.marker.visible = false;
+  }
+
+  private moveSpriteToward(sprite: Sprite, destination: Point, deltaSeconds: number, speed: number) {
+    const current = this.getSpritePoint(sprite);
+    const remainingDistance = distance(current, destination);
+
+    if (remainingDistance <= UNIT_ARRIVAL_DISTANCE) {
+      return true;
+    }
+
+    const step = Math.min(remainingDistance, speed * deltaSeconds);
+    const direction = normalize({
+      x: destination.x - current.x,
+      y: destination.y - current.y,
+    });
+
+    sprite.x += direction.x * step;
+    sprite.y += direction.y * step;
+    return remainingDistance - step <= UNIT_ARRIVAL_DISTANCE;
+  }
+
+  private findResource(id: string | null) {
+    return (this.spawnSystem?.getResources() ?? []).find((resource) => resource.id === id);
+  }
+
+  private findWolf(id: string | null) {
+    return (this.spawnSystem?.getWolves() ?? []).find((wolf) => wolf.id === id);
+  }
+
+  private getAssignedTargetIds() {
+    return new Set([
+      ...this.gatherers.flatMap((unit) => unit.targetId ? [unit.targetId] : []),
+      ...this.warriors.flatMap((unit) => unit.targetId ? [unit.targetId] : []),
+    ]);
+  }
+
+  private getWarriorFormationPoint(index: number): Point {
+    const slot = warriorFormation[index];
+    const cart = this.getCartFormationCenter();
+
+    return {
+      x: cart.x + slot.xOffset,
+      y: cart.y + slot.yOffset,
+    };
+  }
+
+  private getGathererFormationPoint(index: number): Point {
+    const slot = gathererFormation[index];
+    const cart = this.getCartFormationCenter();
+
+    return {
+      x: cart.x + slot.xOffset,
+      y: cart.y + slot.yOffset,
+    };
+  }
+
+  private getCartFormationCenter(): Point {
+    return {
+      x: this.cartSprite?.x ?? Math.round(this.app.screen.width * 0.5),
+      y: this.cartSprite?.y ?? Math.round(this.app.screen.height * 0.58),
+    };
+  }
+
+  private updateUnitMarker<TState extends string>(unit: UnitBase<TState>) {
+    unit.marker.position.set(unit.sprite.x, unit.sprite.y - unit.sprite.height - 4);
+    unit.sprite.tint = unit.state === "formation" ? 0xffffff : 0xfff06a;
+  }
+
   private applyTargetVisual(
     sprite: Sprite,
     isValidTarget: boolean,
+    isAssignedTarget: boolean,
     id: string,
     mode: GazeMode,
   ) {
     if (this.selectedTargetId === id) {
       sprite.tint = 0xfff06a;
       sprite.scale.set(1.25);
+      return;
+    }
+
+    if (isAssignedTarget) {
+      sprite.tint = 0x9dff7a;
+      sprite.scale.set(1.18);
       return;
     }
 
@@ -467,6 +804,12 @@ export class BattleCartEngine {
 
   private publishDebug(scrollSpeed: number) {
     const spawnDebug = this.spawnSystem?.getDebugState();
+    const availableWarriors = this.warriors.filter((unit) =>
+      unit.state === "formation" || unit.state === "returning"
+    ).length;
+    const availableGatherers = this.gatherers.filter((unit) =>
+      unit.state === "formation" || unit.state === "returning"
+    ).length;
 
     this.onDebug({
       fps: this.fps,
@@ -482,6 +825,11 @@ export class BattleCartEngine {
       targetsInsideCone: this.targetsInsideCone,
       selectedTarget: this.selectedTarget,
       lastCommandInput: this.lastCommandInput,
+      availableWarriors,
+      assignedWarriors: this.warriors.length - availableWarriors,
+      availableGatherers,
+      assignedGatherers: this.gatherers.length - availableGatherers,
+      lastAssignmentResult: this.lastAssignmentResult,
     });
   }
 }

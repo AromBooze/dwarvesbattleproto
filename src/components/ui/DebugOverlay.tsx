@@ -18,7 +18,10 @@ Next wolf ${debug.nextWolfSpawn.toFixed(1)}s
 Gaze mode ${debug.gazeMode}
 Targets in cone ${debug.targetsInsideCone}
 Selected ${debug.selectedTarget}
-Last input ${debug.lastCommandInput}`}
+Last input ${debug.lastCommandInput}
+Warriors ${debug.availableWarriors}/${debug.assignedWarriors}
+Gatherers ${debug.availableGatherers}/${debug.assignedGatherers}
+Assignment ${debug.lastAssignmentResult}`}
     </div>
   );
 }

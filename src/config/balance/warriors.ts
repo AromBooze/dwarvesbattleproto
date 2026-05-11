@@ -1,0 +1,1 @@
+export const WARRIOR_RUN_SPEED_MULTIPLIER = 4;
