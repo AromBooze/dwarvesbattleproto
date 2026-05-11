@@ -115,7 +115,7 @@ The game is endless and continues until the player loses.
 | Parameter | Value |
 |---|---:|
 | Base run duration | 90 seconds |
-| Cart/world scroll speed | 1 screen width per 4 seconds |
+| Cart/world scroll speed | 1 screen width per 16 seconds |
 | First run difficulty scaling | none |
 | Between-run upgrade phase | yes |
 
@@ -130,7 +130,7 @@ The cart is the central object the player protects. The cart visually stays near
 | HP | 20 | Lose if HP <= 0 |
 | Armor | 0 | Each armor point reduces incoming damage by 10% |
 | Spikes | 0 | Deals damage per second to each wolf attacking the cart |
-| World scroll speed | 1 screen / 4 sec | Background/resources/enemies move right-to-left |
+| World scroll speed | 1 screen / 16 sec | Background/resources/enemies move right-to-left |
 
 ### Cart Damage Formula
 

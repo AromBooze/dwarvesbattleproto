@@ -5,7 +5,7 @@ import {
   Sprite,
   Texture,
 } from "pixi.js";
-import { SCREEN_SCROLL_SECONDS } from "../../config/balance/run";
+import { WORLD_SCROLL_SECONDS_PER_SCREEN } from "../../config/balance/run";
 import { gathererFormation, warriorFormation } from "../entities/formation";
 import { loadSprites } from "../rendering/loadSprites";
 import { spriteManifest } from "../rendering/spriteManifest";
@@ -169,7 +169,7 @@ export class BattleCartEngine {
   }
 
   private getScrollSpeed() {
-    return this.app.screen.width / SCREEN_SCROLL_SECONDS;
+    return this.app.screen.width / WORLD_SCROLL_SECONDS_PER_SCREEN;
   }
 
   private updateFps(deltaSeconds: number) {
