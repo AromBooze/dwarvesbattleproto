@@ -96,6 +96,9 @@ const CART_HIT_FLASH_SECONDS = 0.18;
 const CART_SHAKE_PIXELS = 4;
 const WARRIOR_COMBAT_OFFSET: Point = { x: -16, y: 12 };
 const WOLF_COMBAT_OFFSET: Point = { x: 16, y: 12 };
+const UNIT_HP_BAR_WIDTH = 24;
+const UNIT_HP_BAR_HEIGHT = 4;
+const UNIT_HP_BAR_Y_OFFSET = 9;
 
 type WarriorState = "formation" | "movingToWolf" | "engaged" | "returning" | "dead";
 type GathererState = "formation" | "movingToResource" | "gathering" | "fleeing" | "returning" | "dead";
@@ -107,6 +110,7 @@ type UnitBase<TState extends string> = {
   state: TState;
   targetId: string | null;
   marker: Text;
+  hpBar: Graphics;
   hp: number;
   maxHp: number;
   attackCooldown: number;
@@ -406,6 +410,7 @@ export class BattleCartEngine {
     for (let index = 0; index < this.warriorCount; index += 1) {
       const warrior = this.createSprite(this.textures.warrior, 1);
       const marker = this.createUnitMarker("бой");
+      const hpBar = this.createUnitHpBar();
       marker.visible = false;
       this.warriors.push({
         id: `warrior-${index + 1}`,
@@ -414,6 +419,7 @@ export class BattleCartEngine {
         state: "formation",
         targetId: null,
         marker,
+        hpBar,
         hp: this.warriorMaxHp,
         maxHp: this.warriorMaxHp,
         attackCooldown: 0,
@@ -421,12 +427,14 @@ export class BattleCartEngine {
         combatAnchor: null,
       });
       this.spritesLayer.addChild(warrior);
+      this.spritesLayer.addChild(hpBar);
       this.spritesLayer.addChild(marker);
     }
 
     for (let index = 0; index < this.gathererCount; index += 1) {
       const gatherer = this.createSprite(this.textures.gatherer, 1);
       const marker = this.createUnitMarker("добыча");
+      const hpBar = this.createUnitHpBar();
       marker.visible = false;
       this.gatherers.push({
         id: `gatherer-${index + 1}`,
@@ -435,6 +443,7 @@ export class BattleCartEngine {
         state: "formation",
         targetId: null,
         marker,
+        hpBar,
         hp: this.gathererMaxHp,
         maxHp: this.gathererMaxHp,
         attackCooldown: 0,
@@ -442,6 +451,7 @@ export class BattleCartEngine {
         combatAnchor: null,
       });
       this.spritesLayer.addChild(gatherer);
+      this.spritesLayer.addChild(hpBar);
       this.spritesLayer.addChild(marker);
     }
   }
@@ -467,6 +477,12 @@ export class BattleCartEngine {
     });
     marker.anchor.set(0.5, 1);
     return marker;
+  }
+
+  private createUnitHpBar() {
+    const hpBar = new Graphics();
+    hpBar.visible = false;
+    return hpBar;
   }
 
   private layoutScene() {
@@ -1151,6 +1167,8 @@ export class BattleCartEngine {
     warrior.targetId = null;
     warrior.combatAnchor = null;
     warrior.marker.visible = false;
+    warrior.hpBar.visible = false;
+    warrior.hpBar.clear();
     warrior.sprite.visible = false;
     warrior.sprite.tint = 0xffffff;
     warrior.sprite.scale.set(1);
@@ -1171,6 +1189,8 @@ export class BattleCartEngine {
     gatherer.targetId = null;
     gatherer.combatAnchor = null;
     gatherer.marker.visible = false;
+    gatherer.hpBar.visible = false;
+    gatherer.hpBar.clear();
     gatherer.sprite.visible = false;
     gatherer.sprite.tint = 0xffffff;
     gatherer.sprite.scale.set(1);
@@ -1436,6 +1456,8 @@ export class BattleCartEngine {
 
   private updateUnitMarker<TState extends string>(unit: UnitBase<TState>) {
     unit.marker.position.set(unit.sprite.x, unit.sprite.y - unit.sprite.height - 4);
+    this.updateUnitHpBar(unit);
+
     if (unit.state === "dead") {
       unit.sprite.tint = 0xffffff;
       unit.marker.visible = false;
@@ -1448,6 +1470,26 @@ export class BattleCartEngine {
     }
 
     unit.sprite.tint = unit.state === "formation" ? 0xffffff : 0xfff06a;
+  }
+
+  private updateUnitHpBar<TState extends string>(unit: UnitBase<TState>) {
+    unit.hpBar.clear();
+
+    if (unit.state === "dead" || unit.hp <= 0 || unit.maxHp <= 0) {
+      unit.hpBar.visible = false;
+      return;
+    }
+
+    const fillPercent = Math.max(0, Math.min(1, unit.hp / unit.maxHp));
+    const fillColor = fillPercent > 0.6 ? 0x4bd765 : fillPercent > 0.3 ? 0xf0d64a : 0xe24a4a;
+    const x = Math.round(unit.sprite.x - UNIT_HP_BAR_WIDTH / 2);
+    const y = Math.round(unit.sprite.y - unit.sprite.height - UNIT_HP_BAR_Y_OFFSET);
+
+    unit.hpBar.visible = true;
+    unit.hpBar.rect(x, y, UNIT_HP_BAR_WIDTH, UNIT_HP_BAR_HEIGHT);
+    unit.hpBar.fill({ color: 0x111111, alpha: 0.88 });
+    unit.hpBar.rect(x + 1, y + 1, Math.max(0, UNIT_HP_BAR_WIDTH - 2) * fillPercent, UNIT_HP_BAR_HEIGHT - 2);
+    unit.hpBar.fill({ color: fillColor, alpha: 0.96 });
   }
 
   private updateWolfVisual(wolf: WolfEntity) {
@@ -1561,6 +1603,7 @@ export class BattleCartEngine {
       warrior.sprite.visible = true;
       warrior.sprite.texture = this.textures?.warrior ?? warrior.sprite.texture;
       warrior.marker.visible = false;
+      warrior.hpBar.visible = true;
     }
 
     for (const gatherer of this.gatherers) {
@@ -1578,6 +1621,7 @@ export class BattleCartEngine {
       gatherer.sprite.visible = true;
       gatherer.sprite.texture = this.textures?.gatherer ?? gatherer.sprite.texture;
       gatherer.marker.visible = false;
+      gatherer.hpBar.visible = true;
     }
   }
 
@@ -1612,6 +1656,7 @@ export class BattleCartEngine {
     warrior.sprite.visible = true;
     warrior.sprite.texture = this.textures?.warrior ?? warrior.sprite.texture;
     warrior.marker.visible = false;
+    warrior.hpBar.visible = true;
   }
 
   private reviveGatherer(gatherer: GathererUnit) {
@@ -1625,6 +1670,7 @@ export class BattleCartEngine {
     gatherer.sprite.visible = true;
     gatherer.sprite.texture = this.textures?.gatherer ?? gatherer.sprite.texture;
     gatherer.marker.visible = false;
+    gatherer.hpBar.visible = true;
   }
 
   private removeUnresurrectedUnits() {
@@ -1634,6 +1680,7 @@ export class BattleCartEngine {
       }
 
       warrior.marker.destroy();
+      warrior.hpBar.destroy();
       warrior.sprite.destroy();
       return false;
     });
@@ -1643,6 +1690,7 @@ export class BattleCartEngine {
       }
 
       gatherer.marker.destroy();
+      gatherer.hpBar.destroy();
       gatherer.sprite.destroy();
       return false;
     });
