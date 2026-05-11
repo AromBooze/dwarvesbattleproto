@@ -1,5 +1,9 @@
 node_modules/
 dist/
+release/
+desktop-build/
+desktop-build-final/
+desktop-release/
 .env
 .env.*
 npm-debug.log*

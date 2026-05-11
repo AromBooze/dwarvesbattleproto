@@ -1,6 +1,6 @@
 import type { SpriteId, SpriteManifestEntry } from "../../types/sprites";
 
-const spriteBasePath = "/Sprites/individual_sprites";
+const spriteBasePath = `${import.meta.env.BASE_URL}Sprites/individual_sprites`;
 
 export const spriteManifest: SpriteManifestEntry[] = [
   { id: "cart", path: `${spriteBasePath}/cart.png` },
