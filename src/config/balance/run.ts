@@ -1,2 +1,2 @@
-export const RUN_DURATION_SECONDS = 90;
+export const RUN_DURATION_SECONDS = 60;
 export const WORLD_SCROLL_SECONDS_PER_SCREEN = 16;
