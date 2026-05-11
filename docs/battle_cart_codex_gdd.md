@@ -89,7 +89,7 @@ Current note: next-run difficulty scaling is **not implemented yet**.
 
 | Parameter | Current Value | Source |
 |---|---:|---|
-| Base run duration | 90 seconds | `RUN_DURATION_SECONDS` |
+| Base run duration | 60 seconds | `RUN_DURATION_SECONDS` |
 | Timer display | `M:SS` countdown | React UI |
 | World scroll speed | 1 screen width per 16 seconds | `WORLD_SCROLL_SECONDS_PER_SCREEN` |
 | Scroll speed formula | `screenWidth / WORLD_SCROLL_SECONDS_PER_SCREEN` | engine |
@@ -451,7 +451,7 @@ Current MVP includes:
 - gathering;
 - basic combat;
 - cart death/game-over run phase;
-- 90-second run timer;
+- 60-second run timer;
 - successful run completion and upgrade screen;
 - upgrade purchasing and next-run start.
 
