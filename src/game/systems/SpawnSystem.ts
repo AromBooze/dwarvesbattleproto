@@ -35,6 +35,11 @@ type DeathEffect = {
   ttl: number;
 };
 
+type WorldPoint = {
+  x: number;
+  y: number;
+};
+
 export type SpawnDebugState = {
   activeResources: number;
   activeWolves: number;
@@ -73,7 +78,7 @@ export class SpawnSystem {
     }
 
     this.moveAndDespawn(deltaSeconds, scrollSpeed, removedResourceIds);
-    this.updateDeathEffects(deltaSeconds);
+    this.updateDeathEffects(deltaSeconds, scrollSpeed);
     this.updateResourceVisuals();
 
     return { removedResourceIds };
@@ -115,7 +120,7 @@ export class SpawnSystem {
     return this.wolves;
   }
 
-  removeWolf(wolfId: string) {
+  removeWolf(wolfId: string, deathPoint?: WorldPoint) {
     const index = this.wolves.findIndex((wolf) => wolf.id === wolfId);
 
     if (index < 0) {
@@ -123,9 +128,13 @@ export class SpawnSystem {
     }
 
     const [wolf] = this.wolves.splice(index, 1);
-    this.spawnDeathEffect(wolf.sprite.x, wolf.sprite.y);
+    this.addDeathEffect(deathPoint ?? { x: wolf.sprite.x, y: wolf.sprite.y });
     wolf.sprite.destroy();
     return true;
+  }
+
+  addDeathEffect(point: WorldPoint) {
+    this.spawnDeathEffect(point.x, point.y);
   }
 
   removeResource(resourceId: string) {
@@ -200,6 +209,7 @@ export class SpawnSystem {
         maxHp: WOLF_BASE_HP,
         targetId: null,
         targetType: null,
+        combatAnchor: null,
         attackCooldown: 0,
         flashUntil: 0,
       });
@@ -242,14 +252,18 @@ export class SpawnSystem {
   private spawnDeathEffect(x: number, y: number) {
     const sprite = this.createWorldSprite(this.textures.blood_puddle);
     sprite.position.set(x, y);
+    sprite.tint = 0xb32121;
     this.deathEffects.push({ sprite, ttl: 4 });
     this.layer.addChild(sprite);
   }
 
-  private updateDeathEffects(deltaSeconds: number) {
+  private updateDeathEffects(deltaSeconds: number, scrollSpeed: number) {
+    const movement = scrollSpeed * deltaSeconds;
+
     for (let index = this.deathEffects.length - 1; index >= 0; index -= 1) {
       const effect = this.deathEffects[index];
       effect.ttl -= deltaSeconds;
+      effect.sprite.x -= movement;
       effect.sprite.alpha = Math.min(1, Math.max(0, effect.ttl / 1.5));
 
       if (effect.ttl <= 0) {

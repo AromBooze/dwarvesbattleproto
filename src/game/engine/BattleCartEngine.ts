@@ -63,6 +63,8 @@ const ATTACK_RANGE = 24;
 const DAMAGE_FLASH_SECONDS = 0.14;
 const CART_HIT_FLASH_SECONDS = 0.18;
 const CART_SHAKE_PIXELS = 4;
+const WARRIOR_COMBAT_OFFSET: Point = { x: -16, y: 12 };
+const WOLF_COMBAT_OFFSET: Point = { x: 16, y: 12 };
 
 type WarriorState = "formation" | "movingToWolf" | "engaged" | "returning" | "dead";
 type GathererState = "formation" | "movingToResource" | "gathering" | "fleeing" | "returning" | "dead";
@@ -78,6 +80,7 @@ type UnitBase<TState extends string> = {
   maxHp: number;
   attackCooldown: number;
   flashUntil: number;
+  combatAnchor: Point | null;
 };
 
 type WarriorUnit = UnitBase<WarriorState>;
@@ -192,6 +195,7 @@ export class BattleCartEngine {
     });
     this.handleRemovedResources(spawnResult?.removedResourceIds ?? []);
     if (!this.gameOver) {
+      this.scrollCombatAnchors(deltaSeconds, scrollSpeed);
       this.updateUnits(deltaSeconds, scrollSpeed);
       this.updateWolves(deltaSeconds, scrollSpeed);
       this.updateCartVisual();
@@ -231,6 +235,7 @@ export class BattleCartEngine {
         maxHp: WARRIOR_BASE_HP,
         attackCooldown: 0,
         flashUntil: 0,
+        combatAnchor: null,
       });
       this.spritesLayer.addChild(warrior);
       this.spritesLayer.addChild(marker);
@@ -251,6 +256,7 @@ export class BattleCartEngine {
         maxHp: GATHERER_BASE_HP,
         attackCooldown: 0,
         flashUntil: 0,
+        combatAnchor: null,
       });
       this.spritesLayer.addChild(gatherer);
       this.spritesLayer.addChild(marker);
@@ -541,6 +547,7 @@ export class BattleCartEngine {
 
     gatherer.state = "movingToResource";
     gatherer.targetId = target.id;
+    gatherer.combatAnchor = null;
     gatherer.marker.visible = false;
     target.assignedGathererIds.add(gatherer.id);
     this.lastAssignmentResult = `${gatherer.id} -> ${target.type}:${target.id}`;
@@ -563,6 +570,7 @@ export class BattleCartEngine {
 
     warrior.state = "movingToWolf";
     warrior.targetId = target.id;
+    warrior.combatAnchor = null;
     warrior.marker.visible = false;
     this.lastAssignmentResult = `${warrior.id} -> wolf:${target.id}`;
   }
@@ -611,15 +619,12 @@ export class BattleCartEngine {
     if (unit.state === "movingToWolf") {
       const arrived = this.moveSpriteToward(unit.sprite, targetPoint, deltaSeconds, speed);
       if (arrived) {
-        unit.state = "engaged";
-        target.targetType = "warrior";
-        target.targetId = unit.id;
-        unit.marker.visible = true;
+        this.startWarriorWolfCombat(unit, target);
       }
     }
 
     if (unit.state === "engaged") {
-      unit.sprite.position.set(targetPoint.x - 18, targetPoint.y + 12);
+      this.positionCombatants(unit, target);
       unit.marker.visible = true;
       this.resolveWarriorAttack(unit, target);
     }
@@ -715,9 +720,29 @@ export class BattleCartEngine {
       const current = this.getSpritePoint(wolf.sprite);
       const targetDistance = distance(current, targetPoint);
 
+      if (wolf.combatAnchor && wolf.targetType === "warrior") {
+        const warrior = this.findWarrior(wolf.targetId);
+
+        if (warrior && warrior.state === "engaged") {
+          this.positionCombatants(warrior, wolf);
+          this.resolveWolfAttack(wolf);
+          continue;
+        }
+
+        wolf.combatAnchor = null;
+      }
+
       if (targetDistance > range) {
         this.moveSpriteToward(wolf.sprite, targetPoint, deltaSeconds, wolfSpeed);
         continue;
+      }
+
+      if (wolf.targetType === "warrior") {
+        const warrior = this.findWarrior(wolf.targetId);
+
+        if (warrior) {
+          this.startWarriorWolfCombat(warrior, wolf);
+        }
       }
 
       this.resolveWolfAttack(wolf);
@@ -738,6 +763,7 @@ export class BattleCartEngine {
     if (target) {
       wolf.targetType = target.kind;
       wolf.targetId = target.unit.id;
+      wolf.combatAnchor = null;
 
       if (target.kind === "gatherer" && target.unit.state !== "dead") {
         this.stopGathererTask(target.unit);
@@ -749,6 +775,7 @@ export class BattleCartEngine {
 
     wolf.targetType = "cart";
     wolf.targetId = "cart";
+    wolf.combatAnchor = null;
   }
 
   private isWolfTargetValid(wolf: WolfEntity) {
@@ -785,6 +812,51 @@ export class BattleCartEngine {
     }
 
     return null;
+  }
+
+  private scrollCombatAnchors(deltaSeconds: number, scrollSpeed: number) {
+    const movement = scrollSpeed * deltaSeconds;
+
+    for (const wolf of this.spawnSystem?.getWolves() ?? []) {
+      if (wolf.combatAnchor) {
+        wolf.combatAnchor.x -= movement;
+      }
+    }
+  }
+
+  private startWarriorWolfCombat(warrior: WarriorUnit, wolf: WolfEntity) {
+    if (!wolf.combatAnchor) {
+      const warriorPoint = this.getSpritePoint(warrior.sprite);
+      const wolfPoint = this.getSpritePoint(wolf.sprite);
+      wolf.combatAnchor = {
+        x: (warriorPoint.x + wolfPoint.x) / 2,
+        y: (warriorPoint.y + wolfPoint.y) / 2,
+      };
+    }
+
+    warrior.state = "engaged";
+    warrior.targetId = wolf.id;
+    warrior.combatAnchor = wolf.combatAnchor;
+    warrior.marker.visible = true;
+    wolf.targetType = "warrior";
+    wolf.targetId = warrior.id;
+    this.positionCombatants(warrior, wolf);
+  }
+
+  private positionCombatants(warrior: WarriorUnit, wolf: WolfEntity) {
+    if (!wolf.combatAnchor) {
+      return;
+    }
+
+    warrior.combatAnchor = wolf.combatAnchor;
+    warrior.sprite.position.set(
+      wolf.combatAnchor.x + WARRIOR_COMBAT_OFFSET.x,
+      wolf.combatAnchor.y + WARRIOR_COMBAT_OFFSET.y,
+    );
+    wolf.sprite.position.set(
+      wolf.combatAnchor.x + WOLF_COMBAT_OFFSET.x,
+      wolf.combatAnchor.y + WOLF_COMBAT_OFFSET.y,
+    );
   }
 
   private resolveWarriorAttack(warrior: WarriorUnit, wolf: WolfEntity) {
@@ -863,7 +935,8 @@ export class BattleCartEngine {
   }
 
   private killWolf(wolf: WolfEntity, warrior?: WarriorUnit) {
-    this.spawnSystem?.removeWolf(wolf.id);
+    const deathPoint = wolf.combatAnchor ?? { x: wolf.sprite.x, y: wolf.sprite.y };
+    this.spawnSystem?.removeWolf(wolf.id, deathPoint);
 
     if (this.selectedTargetId === wolf.id) {
       this.selectedTargetId = null;
@@ -871,6 +944,7 @@ export class BattleCartEngine {
     }
 
     if (warrior && warrior.hp > 0 && warrior.state !== "dead") {
+      warrior.combatAnchor = null;
       this.autoRetargetWarrior(warrior);
     }
 
@@ -884,33 +958,41 @@ export class BattleCartEngine {
   }
 
   private killWarrior(warrior: WarriorUnit, wolf?: WolfEntity) {
+    const deathPoint = wolf?.combatAnchor ?? warrior.combatAnchor ?? { x: warrior.sprite.x, y: warrior.sprite.y };
     warrior.state = "dead";
     warrior.targetId = null;
+    warrior.combatAnchor = null;
     warrior.marker.visible = false;
-    warrior.sprite.texture = this.textures?.blood_puddle ?? warrior.sprite.texture;
+    warrior.sprite.visible = false;
     warrior.sprite.tint = 0xffffff;
     warrior.sprite.scale.set(1);
+    this.spawnSystem?.addDeathEffect(deathPoint);
     this.deadWarriors += 1;
 
     if (wolf) {
       wolf.targetId = null;
       wolf.targetType = null;
+      wolf.combatAnchor = null;
     }
   }
 
   private killGatherer(gatherer: GathererUnit, wolf?: WolfEntity) {
+    const deathPoint = { x: gatherer.sprite.x, y: gatherer.sprite.y };
     this.stopGathererTask(gatherer);
     gatherer.state = "dead";
     gatherer.targetId = null;
+    gatherer.combatAnchor = null;
     gatherer.marker.visible = false;
-    gatherer.sprite.texture = this.textures?.blood_puddle ?? gatherer.sprite.texture;
+    gatherer.sprite.visible = false;
     gatherer.sprite.tint = 0xffffff;
     gatherer.sprite.scale.set(1);
+    this.spawnSystem?.addDeathEffect(deathPoint);
     this.deadGatherers += 1;
 
     if (wolf) {
       wolf.targetId = null;
       wolf.targetType = null;
+      wolf.combatAnchor = null;
     }
   }
 
@@ -926,9 +1008,11 @@ export class BattleCartEngine {
 
     warrior.state = "movingToWolf";
     warrior.targetId = target.id;
+    warrior.combatAnchor = null;
     warrior.marker.visible = false;
     target.targetType = "warrior";
     target.targetId = warrior.id;
+    target.combatAnchor = null;
   }
 
   private stopGathererTask(gatherer: GathererUnit) {
@@ -1001,6 +1085,7 @@ export class BattleCartEngine {
       }
       gatherer.state = "returning";
       gatherer.targetId = null;
+      gatherer.combatAnchor = null;
       gatherer.marker.visible = false;
     }
     this.lastAssignmentResult = "gatherers recalled";
@@ -1010,8 +1095,18 @@ export class BattleCartEngine {
     for (const warrior of this.warriors) {
       warrior.state = "returning";
       warrior.targetId = null;
+      warrior.combatAnchor = null;
       warrior.marker.visible = false;
     }
+
+    for (const wolf of this.spawnSystem?.getWolves() ?? []) {
+      if (wolf.targetType === "warrior") {
+        wolf.targetId = null;
+        wolf.targetType = null;
+        wolf.combatAnchor = null;
+      }
+    }
+
     this.lastAssignmentResult = "warriors recalled";
   }
 
@@ -1053,12 +1148,14 @@ export class BattleCartEngine {
     if (arrived) {
       unit.sprite.position.set(destination.x, destination.y);
       unit.state = "formation" as TState;
+      unit.combatAnchor = null;
       unit.marker.visible = false;
     }
   }
 
   private snapUnitToFormation<TState extends string>(unit: UnitBase<TState>, position: Point) {
     unit.sprite.position.set(position.x, position.y);
+    unit.combatAnchor = null;
     unit.marker.visible = false;
   }
 
@@ -1169,8 +1266,8 @@ export class BattleCartEngine {
     this.cartSprite.tint = 0xffffff;
   }
 
-  private bumpSprite(sprite: Sprite, xOffset: number) {
-    sprite.x += xOffset;
+  private bumpSprite(sprite: Sprite, _xOffset: number) {
+    sprite.scale.set(1.12);
   }
 
   private applyTargetVisual(

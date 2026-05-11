@@ -19,6 +19,7 @@ export type WolfEntity = {
   maxHp: number;
   targetId: string | null;
   targetType: "warrior" | "gatherer" | "cart" | null;
+  combatAnchor: { x: number; y: number } | null;
   attackCooldown: number;
   flashUntil: number;
 };
