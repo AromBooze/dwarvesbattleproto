@@ -14,6 +14,12 @@ export type DebugState = {
   lastCommandInput: string;
   wood: number;
   ore: number;
+  cartHp: number;
+  cartMaxHp: number;
+  livingWarriors: number;
+  totalWarriors: number;
+  livingGatherers: number;
+  totalGatherers: number;
   availableWarriors: number;
   assignedWarriors: number;
   availableGatherers: number;
@@ -21,6 +27,11 @@ export type DebugState = {
   lastAssignmentResult: string;
   activeGatherers: number;
   gatheredResource: string;
+  activeCombats: number;
+  wolvesTargetingCart: number;
+  deadWarriors: number;
+  deadGatherers: number;
+  gameOver: boolean;
 };
 
 export const defaultDebugState: DebugState = {
@@ -39,6 +50,12 @@ export const defaultDebugState: DebugState = {
   lastCommandInput: "none",
   wood: 0,
   ore: 0,
+  cartHp: 20,
+  cartMaxHp: 20,
+  livingWarriors: 0,
+  totalWarriors: 0,
+  livingGatherers: 0,
+  totalGatherers: 0,
   availableWarriors: 0,
   assignedWarriors: 0,
   availableGatherers: 0,
@@ -46,4 +63,9 @@ export const defaultDebugState: DebugState = {
   lastAssignmentResult: "none",
   activeGatherers: 0,
   gatheredResource: "none",
+  activeCombats: 0,
+  wolvesTargetingCart: 0,
+  deadWarriors: 0,
+  deadGatherers: 0,
+  gameOver: false,
 };

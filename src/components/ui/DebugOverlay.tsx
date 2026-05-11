@@ -25,6 +25,10 @@ Warriors ${debug.availableWarriors}/${debug.assignedWarriors}
 Gatherers ${debug.availableGatherers}/${debug.assignedGatherers}
 Active gatherers ${debug.activeGatherers}
 Gathering ${debug.gatheredResource}
+Combats ${debug.activeCombats}
+Wolves on cart ${debug.wolvesTargetingCart}
+Dead W/G ${debug.deadWarriors}/${debug.deadGatherers}
+Game over ${debug.gameOver ? "yes" : "no"}
 Assignment ${debug.lastAssignmentResult}`}
     </div>
   );

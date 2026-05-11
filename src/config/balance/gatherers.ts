@@ -1,2 +1,3 @@
 export const GATHERER_RUN_SPEED_MULTIPLIER = 3;
 export const GATHERER_GATHERING_RATE_PER_SECOND = 2;
+export const GATHERER_BASE_HP = 3;

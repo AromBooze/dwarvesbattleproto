@@ -15,4 +15,10 @@ export type ResourceEntity = {
 export type WolfEntity = {
   id: string;
   sprite: Sprite;
+  hp: number;
+  maxHp: number;
+  targetId: string | null;
+  targetType: "warrior" | "gatherer" | "cart" | null;
+  attackCooldown: number;
+  flashUntil: number;
 };

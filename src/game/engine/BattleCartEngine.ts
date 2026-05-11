@@ -7,6 +7,12 @@ import {
   Texture,
 } from "pixi.js";
 import {
+  CART_ARMOR,
+  CART_BASE_HP,
+  CART_SPIKES_DAMAGE_PER_SECOND,
+} from "../../config/balance/cart";
+import {
+  GATHERER_BASE_HP,
   GATHERER_GATHERING_RATE_PER_SECOND,
   GATHERER_RUN_SPEED_MULTIPLIER,
 } from "../../config/balance/gatherers";
@@ -15,7 +21,17 @@ import {
   GAZE_CONE_LENGTH_MULTIPLIER,
 } from "../../config/balance/input";
 import { WORLD_SCROLL_SECONDS_PER_SCREEN } from "../../config/balance/run";
-import { WARRIOR_RUN_SPEED_MULTIPLIER } from "../../config/balance/warriors";
+import {
+  WARRIOR_ATTACKS_PER_SECOND,
+  WARRIOR_BASE_HP,
+  WARRIOR_DAMAGE,
+  WARRIOR_RUN_SPEED_MULTIPLIER,
+} from "../../config/balance/warriors";
+import {
+  WOLF_ATTACKS_PER_SECOND,
+  WOLF_DAMAGE,
+  WOLF_MOVEMENT_SPEED_MULTIPLIER,
+} from "../../config/balance/wolves";
 import { gathererFormation, warriorFormation } from "../entities/formation";
 import {
   degreesToRadians,
@@ -43,9 +59,13 @@ type DebugListener = (state: DebugState) => void;
 const GRID_SIZE = 32;
 const UNIT_ARRIVAL_DISTANCE = 14;
 const DIRECT_CLICK_TARGET_RADIUS = 128;
+const ATTACK_RANGE = 24;
+const DAMAGE_FLASH_SECONDS = 0.14;
+const CART_HIT_FLASH_SECONDS = 0.18;
+const CART_SHAKE_PIXELS = 4;
 
-type WarriorState = "formation" | "movingToWolf" | "engaged" | "returning";
-type GathererState = "formation" | "movingToResource" | "gathering" | "returning";
+type WarriorState = "formation" | "movingToWolf" | "engaged" | "returning" | "dead";
+type GathererState = "formation" | "movingToResource" | "gathering" | "fleeing" | "returning" | "dead";
 
 type UnitBase<TState extends string> = {
   id: string;
@@ -54,6 +74,10 @@ type UnitBase<TState extends string> = {
   state: TState;
   targetId: string | null;
   marker: Text;
+  hp: number;
+  maxHp: number;
+  attackCooldown: number;
+  flashUntil: number;
 };
 
 type WarriorUnit = UnitBase<WarriorState>;
@@ -86,6 +110,13 @@ export class BattleCartEngine {
   private selectedTargetId: string | null = null;
   private wood = 0;
   private ore = 0;
+  private cartHp = CART_BASE_HP;
+  private cartArmor = CART_ARMOR;
+  private cartSpikes = CART_SPIKES_DAMAGE_PER_SECOND;
+  private cartFlashUntil = 0;
+  private gameOver = false;
+  private deadWarriors = 0;
+  private deadGatherers = 0;
   private gatheredResource = "none";
   private scrollOffset = 0;
   private elapsedTime = 0;
@@ -160,7 +191,11 @@ export class BattleCartEngine {
       height: this.app.screen.height,
     });
     this.handleRemovedResources(spawnResult?.removedResourceIds ?? []);
-    this.updateUnits(deltaSeconds, scrollSpeed);
+    if (!this.gameOver) {
+      this.updateUnits(deltaSeconds, scrollSpeed);
+      this.updateWolves(deltaSeconds, scrollSpeed);
+      this.updateCartVisual();
+    }
     this.spawnSystem?.updateResourceVisuals();
     this.updateGaze();
     this.updateFps(deltaSeconds);
@@ -192,6 +227,10 @@ export class BattleCartEngine {
         state: "formation",
         targetId: null,
         marker,
+        hp: WARRIOR_BASE_HP,
+        maxHp: WARRIOR_BASE_HP,
+        attackCooldown: 0,
+        flashUntil: 0,
       });
       this.spritesLayer.addChild(warrior);
       this.spritesLayer.addChild(marker);
@@ -208,6 +247,10 @@ export class BattleCartEngine {
         state: "formation",
         targetId: null,
         marker,
+        hp: GATHERER_BASE_HP,
+        maxHp: GATHERER_BASE_HP,
+        attackCooldown: 0,
+        flashUntil: 0,
       });
       this.spritesLayer.addChild(gatherer);
       this.spritesLayer.addChild(marker);
@@ -488,7 +531,7 @@ export class BattleCartEngine {
     }
 
     const gatherer = this.gatherers.find((unit) =>
-      unit.state === "formation" || unit.state === "returning"
+      unit.hp > 0 && (unit.state === "formation" || unit.state === "returning")
     );
 
     if (!gatherer) {
@@ -510,7 +553,7 @@ export class BattleCartEngine {
     }
 
     const warrior = this.warriors.find((unit) =>
-      unit.state === "formation" || unit.state === "returning"
+      unit.hp > 0 && (unit.state === "formation" || unit.state === "returning")
     );
 
     if (!warrior) {
@@ -540,6 +583,12 @@ export class BattleCartEngine {
   }
 
   private updateWarrior(unit: WarriorUnit, deltaSeconds: number, speed: number) {
+    if (unit.state === "dead" || unit.hp <= 0) {
+      return;
+    }
+
+    unit.attackCooldown = Math.max(0, unit.attackCooldown - deltaSeconds);
+
     if (unit.state === "formation") {
       this.snapUnitToFormation(unit, this.getWarriorFormationPoint(unit.slotIndex));
       return;
@@ -553,9 +602,7 @@ export class BattleCartEngine {
     const target = this.findWolf(unit.targetId);
 
     if (!target) {
-      unit.state = "returning";
-      unit.targetId = null;
-      unit.marker.visible = false;
+      this.autoRetargetWarrior(unit);
       return;
     }
 
@@ -565,6 +612,8 @@ export class BattleCartEngine {
       const arrived = this.moveSpriteToward(unit.sprite, targetPoint, deltaSeconds, speed);
       if (arrived) {
         unit.state = "engaged";
+        target.targetType = "warrior";
+        target.targetId = unit.id;
         unit.marker.visible = true;
       }
     }
@@ -572,16 +621,21 @@ export class BattleCartEngine {
     if (unit.state === "engaged") {
       unit.sprite.position.set(targetPoint.x - 18, targetPoint.y + 12);
       unit.marker.visible = true;
+      this.resolveWarriorAttack(unit, target);
     }
   }
 
   private updateGatherer(unit: GathererUnit, deltaSeconds: number, speed: number) {
+    if (unit.state === "dead" || unit.hp <= 0) {
+      return;
+    }
+
     if (unit.state === "formation") {
       this.snapUnitToFormation(unit, this.getGathererFormationPoint(unit.slotIndex));
       return;
     }
 
-    if (unit.state === "returning") {
+    if (unit.state === "returning" || unit.state === "fleeing") {
       this.moveUnitToFormation(unit, this.getGathererFormationPoint(unit.slotIndex), deltaSeconds, speed);
       return;
     }
@@ -639,6 +693,287 @@ export class BattleCartEngine {
       unit.state = "returning";
       unit.targetId = null;
       unit.marker.visible = false;
+    }
+  }
+
+  private updateWolves(deltaSeconds: number, scrollSpeed: number) {
+    const wolves = this.spawnSystem?.getWolves() ?? [];
+    const wolfSpeed = scrollSpeed * WOLF_MOVEMENT_SPEED_MULTIPLIER;
+
+    for (const wolf of wolves) {
+      wolf.attackCooldown = Math.max(0, wolf.attackCooldown - deltaSeconds);
+      this.ensureWolfTarget(wolf);
+      this.updateWolfVisual(wolf);
+
+      const targetPoint = this.getWolfTargetPoint(wolf);
+
+      if (!targetPoint) {
+        continue;
+      }
+
+      const range = wolf.targetType === "cart" ? 34 : ATTACK_RANGE;
+      const current = this.getSpritePoint(wolf.sprite);
+      const targetDistance = distance(current, targetPoint);
+
+      if (targetDistance > range) {
+        this.moveSpriteToward(wolf.sprite, targetPoint, deltaSeconds, wolfSpeed);
+        continue;
+      }
+
+      this.resolveWolfAttack(wolf);
+    }
+
+    if (this.cartSpikes > 0) {
+      this.applyCartSpikes(deltaSeconds);
+    }
+  }
+
+  private ensureWolfTarget(wolf: WolfEntity) {
+    if (this.isWolfTargetValid(wolf)) {
+      return;
+    }
+
+    const target = this.findNearestLivingUnit(this.getSpritePoint(wolf.sprite));
+
+    if (target) {
+      wolf.targetType = target.kind;
+      wolf.targetId = target.unit.id;
+
+      if (target.kind === "gatherer" && target.unit.state !== "dead") {
+        this.stopGathererTask(target.unit);
+        target.unit.state = "fleeing";
+      }
+
+      return;
+    }
+
+    wolf.targetType = "cart";
+    wolf.targetId = "cart";
+  }
+
+  private isWolfTargetValid(wolf: WolfEntity) {
+    if (wolf.targetType === "cart") {
+      return !this.gameOver;
+    }
+
+    if (wolf.targetType === "warrior") {
+      const warrior = this.findWarrior(wolf.targetId);
+      return !!warrior && warrior.hp > 0 && warrior.state !== "dead";
+    }
+
+    if (wolf.targetType === "gatherer") {
+      const gatherer = this.findGatherer(wolf.targetId);
+      return !!gatherer && gatherer.hp > 0 && gatherer.state !== "dead";
+    }
+
+    return false;
+  }
+
+  private getWolfTargetPoint(wolf: WolfEntity): Point | null {
+    if (wolf.targetType === "cart") {
+      return this.getCartCenter();
+    }
+
+    if (wolf.targetType === "warrior") {
+      const warrior = this.findWarrior(wolf.targetId);
+      return warrior ? this.getSpritePoint(warrior.sprite) : null;
+    }
+
+    if (wolf.targetType === "gatherer") {
+      const gatherer = this.findGatherer(wolf.targetId);
+      return gatherer ? this.getSpritePoint(gatherer.sprite) : null;
+    }
+
+    return null;
+  }
+
+  private resolveWarriorAttack(warrior: WarriorUnit, wolf: WolfEntity) {
+    if (warrior.attackCooldown > 0 || warrior.hp <= 0) {
+      return;
+    }
+
+    wolf.hp -= WARRIOR_DAMAGE;
+    wolf.flashUntil = this.elapsedTime + DAMAGE_FLASH_SECONDS;
+    this.bumpSprite(warrior.sprite, -4);
+    warrior.attackCooldown = 1 / WARRIOR_ATTACKS_PER_SECOND;
+
+    if (wolf.hp <= 0) {
+      this.killWolf(wolf, warrior);
+    }
+  }
+
+  private resolveWolfAttack(wolf: WolfEntity) {
+    if (wolf.attackCooldown > 0) {
+      return;
+    }
+
+    this.bumpSprite(wolf.sprite, 4);
+    wolf.attackCooldown = 1 / WOLF_ATTACKS_PER_SECOND;
+
+    if (wolf.targetType === "warrior") {
+      const warrior = this.findWarrior(wolf.targetId);
+      if (warrior) {
+        this.damageWarrior(warrior, WOLF_DAMAGE, wolf);
+      }
+      return;
+    }
+
+    if (wolf.targetType === "gatherer") {
+      const gatherer = this.findGatherer(wolf.targetId);
+      if (gatherer) {
+        this.damageGatherer(gatherer, WOLF_DAMAGE, wolf);
+      }
+      return;
+    }
+
+    if (wolf.targetType === "cart") {
+      this.damageCart(WOLF_DAMAGE);
+    }
+  }
+
+  private damageWarrior(warrior: WarriorUnit, damage: number, wolf: WolfEntity) {
+    warrior.hp -= damage;
+    warrior.flashUntil = this.elapsedTime + DAMAGE_FLASH_SECONDS;
+
+    if (warrior.hp <= 0) {
+      this.killWarrior(warrior, wolf);
+    }
+  }
+
+  private damageGatherer(gatherer: GathererUnit, damage: number, wolf: WolfEntity) {
+    this.stopGathererTask(gatherer);
+    gatherer.state = "fleeing";
+    gatherer.hp -= damage;
+    gatherer.flashUntil = this.elapsedTime + DAMAGE_FLASH_SECONDS;
+
+    if (gatherer.hp <= 0) {
+      this.killGatherer(gatherer, wolf);
+    }
+  }
+
+  private damageCart(incomingDamage: number) {
+    const finalDamage = incomingDamage * (1 - this.cartArmor * 0.1);
+    this.cartHp = Math.max(0, this.cartHp - finalDamage);
+    this.cartFlashUntil = this.elapsedTime + CART_HIT_FLASH_SECONDS;
+
+    if (this.cartHp <= 0) {
+      this.gameOver = true;
+      this.lastAssignmentResult = "game over";
+    }
+  }
+
+  private killWolf(wolf: WolfEntity, warrior?: WarriorUnit) {
+    this.spawnSystem?.removeWolf(wolf.id);
+
+    if (this.selectedTargetId === wolf.id) {
+      this.selectedTargetId = null;
+      this.selectedTarget = "none";
+    }
+
+    if (warrior && warrior.hp > 0 && warrior.state !== "dead") {
+      this.autoRetargetWarrior(warrior);
+    }
+
+    for (const otherWarrior of this.warriors) {
+      if (otherWarrior === warrior || otherWarrior.targetId !== wolf.id) {
+        continue;
+      }
+
+      this.autoRetargetWarrior(otherWarrior);
+    }
+  }
+
+  private killWarrior(warrior: WarriorUnit, wolf?: WolfEntity) {
+    warrior.state = "dead";
+    warrior.targetId = null;
+    warrior.marker.visible = false;
+    warrior.sprite.texture = this.textures?.blood_puddle ?? warrior.sprite.texture;
+    warrior.sprite.tint = 0xffffff;
+    warrior.sprite.scale.set(1);
+    this.deadWarriors += 1;
+
+    if (wolf) {
+      wolf.targetId = null;
+      wolf.targetType = null;
+    }
+  }
+
+  private killGatherer(gatherer: GathererUnit, wolf?: WolfEntity) {
+    this.stopGathererTask(gatherer);
+    gatherer.state = "dead";
+    gatherer.targetId = null;
+    gatherer.marker.visible = false;
+    gatherer.sprite.texture = this.textures?.blood_puddle ?? gatherer.sprite.texture;
+    gatherer.sprite.tint = 0xffffff;
+    gatherer.sprite.scale.set(1);
+    this.deadGatherers += 1;
+
+    if (wolf) {
+      wolf.targetId = null;
+      wolf.targetType = null;
+    }
+  }
+
+  private autoRetargetWarrior(warrior: WarriorUnit) {
+    const target = this.findNearestWolf(this.getSpritePoint(warrior.sprite));
+
+    if (!target) {
+      warrior.state = "returning";
+      warrior.targetId = null;
+      warrior.marker.visible = false;
+      return;
+    }
+
+    warrior.state = "movingToWolf";
+    warrior.targetId = target.id;
+    warrior.marker.visible = false;
+    target.targetType = "warrior";
+    target.targetId = warrior.id;
+  }
+
+  private stopGathererTask(gatherer: GathererUnit) {
+    if (gatherer.targetId) {
+      this.findResource(gatherer.targetId)?.assignedGathererIds.delete(gatherer.id);
+    }
+
+    gatherer.targetId = null;
+    gatherer.marker.visible = false;
+  }
+
+  private findNearestLivingUnit(origin: Point) {
+    const livingWarriors = this.warriors
+      .filter((unit) => unit.hp > 0 && unit.state !== "dead")
+      .map((unit) => ({ kind: "warrior" as const, unit, distance: distance(origin, this.getSpritePoint(unit.sprite)) }));
+    const livingGatherers = this.gatherers
+      .filter((unit) => unit.hp > 0 && unit.state !== "dead")
+      .map((unit) => ({ kind: "gatherer" as const, unit, distance: distance(origin, this.getSpritePoint(unit.sprite)) }));
+
+    return [...livingWarriors, ...livingGatherers].sort((a, b) => a.distance - b.distance)[0];
+  }
+
+  private findNearestWolf(origin: Point) {
+    return (this.spawnSystem?.getWolves() ?? [])
+      .sort((a, b) => distance(origin, this.getSpritePoint(a.sprite)) - distance(origin, this.getSpritePoint(b.sprite)))[0];
+  }
+
+  private applyCartSpikes(deltaSeconds: number) {
+    const wolves = this.spawnSystem?.getWolves() ?? [];
+
+    for (const wolf of wolves) {
+      if (wolf.targetType !== "cart") {
+        continue;
+      }
+
+      if (distance(this.getSpritePoint(wolf.sprite), this.getCartCenter()) > 40) {
+        continue;
+      }
+
+      wolf.hp -= this.cartSpikes * deltaSeconds;
+      wolf.flashUntil = this.elapsedTime + DAMAGE_FLASH_SECONDS;
+
+      if (wolf.hp <= 0) {
+        this.killWolf(wolf);
+      }
     }
   }
 
@@ -754,6 +1089,14 @@ export class BattleCartEngine {
     return (this.spawnSystem?.getWolves() ?? []).find((wolf) => wolf.id === id);
   }
 
+  private findWarrior(id: string | null) {
+    return this.warriors.find((warrior) => warrior.id === id);
+  }
+
+  private findGatherer(id: string | null) {
+    return this.gatherers.find((gatherer) => gatherer.id === id);
+  }
+
   private getAssignedTargetIds() {
     return new Set([
       ...this.gatherers.flatMap((unit) => unit.targetId ? [unit.targetId] : []),
@@ -783,14 +1126,51 @@ export class BattleCartEngine {
 
   private getCartFormationCenter(): Point {
     return {
-      x: this.cartSprite?.x ?? Math.round(this.app.screen.width * 0.5),
-      y: this.cartSprite?.y ?? Math.round(this.app.screen.height * 0.58),
+      x: Math.round(this.app.screen.width * 0.5),
+      y: Math.round(this.app.screen.height * 0.58),
     };
   }
 
   private updateUnitMarker<TState extends string>(unit: UnitBase<TState>) {
     unit.marker.position.set(unit.sprite.x, unit.sprite.y - unit.sprite.height - 4);
+    if (unit.state === "dead") {
+      unit.sprite.tint = 0xffffff;
+      unit.marker.visible = false;
+      return;
+    }
+
+    if (unit.flashUntil > this.elapsedTime) {
+      unit.sprite.tint = 0xff6464;
+      return;
+    }
+
     unit.sprite.tint = unit.state === "formation" ? 0xffffff : 0xfff06a;
+  }
+
+  private updateWolfVisual(wolf: WolfEntity) {
+    wolf.sprite.tint = wolf.flashUntil > this.elapsedTime ? 0xff6464 : 0xffffff;
+  }
+
+  private updateCartVisual() {
+    if (!this.cartSprite) {
+      return;
+    }
+
+    const formation = this.getCartFormationCenter();
+
+    if (this.cartFlashUntil > this.elapsedTime) {
+      const shake = Math.sin(this.elapsedTime * 80) * CART_SHAKE_PIXELS;
+      this.cartSprite.position.set(formation.x + shake, formation.y);
+      this.cartSprite.tint = 0xff7777;
+      return;
+    }
+
+    this.cartSprite.position.set(formation.x, formation.y);
+    this.cartSprite.tint = 0xffffff;
+  }
+
+  private bumpSprite(sprite: Sprite, xOffset: number) {
+    sprite.x += xOffset;
   }
 
   private applyTargetVisual(
@@ -894,12 +1274,23 @@ export class BattleCartEngine {
   private publishDebug(scrollSpeed: number) {
     const spawnDebug = this.spawnSystem?.getDebugState();
     const availableWarriors = this.warriors.filter((unit) =>
-      unit.state === "formation" || unit.state === "returning"
+      unit.hp > 0 && (unit.state === "formation" || unit.state === "returning")
     ).length;
     const availableGatherers = this.gatherers.filter((unit) =>
-      unit.state === "formation" || unit.state === "returning"
+      unit.hp > 0 && (unit.state === "formation" || unit.state === "returning")
     ).length;
     const activeGatherers = this.gatherers.filter((unit) => unit.state === "gathering").length;
+    const livingWarriors = this.warriors.filter((unit) => unit.hp > 0 && unit.state !== "dead").length;
+    const livingGatherers = this.gatherers.filter((unit) => unit.hp > 0 && unit.state !== "dead").length;
+    const wolves = this.spawnSystem?.getWolves() ?? [];
+    const activeCombats = this.warriors.filter((unit) => unit.state === "engaged").length;
+    const wolvesTargetingCart = wolves.filter((wolf) => wolf.targetType === "cart").length;
+    const assignedWarriors = this.warriors.filter((unit) =>
+      unit.hp > 0 && unit.state !== "formation" && unit.state !== "returning"
+    ).length;
+    const assignedGatherers = this.gatherers.filter((unit) =>
+      unit.hp > 0 && unit.state !== "formation" && unit.state !== "returning"
+    ).length;
 
     this.onDebug({
       fps: this.fps,
@@ -917,13 +1308,24 @@ export class BattleCartEngine {
       lastCommandInput: this.lastCommandInput,
       wood: Math.floor(this.wood),
       ore: Math.floor(this.ore),
+      cartHp: Math.ceil(this.cartHp),
+      cartMaxHp: CART_BASE_HP,
+      livingWarriors,
+      totalWarriors: this.warriors.length,
+      livingGatherers,
+      totalGatherers: this.gatherers.length,
       availableWarriors,
-      assignedWarriors: this.warriors.length - availableWarriors,
+      assignedWarriors,
       availableGatherers,
-      assignedGatherers: this.gatherers.length - availableGatherers,
+      assignedGatherers,
       lastAssignmentResult: this.lastAssignmentResult,
       activeGatherers,
       gatheredResource: activeGatherers > 0 ? this.gatheredResource : "none",
+      activeCombats,
+      wolvesTargetingCart,
+      deadWarriors: this.deadWarriors,
+      deadGatherers: this.deadGatherers,
+      gameOver: this.gameOver,
     });
   }
 }

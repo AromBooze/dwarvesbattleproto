@@ -72,11 +72,12 @@ img {
 .resource-panel {
   justify-self: end;
   display: flex;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: 8px 14px;
   padding: 8px 12px;
-  min-width: 112px;
-  justify-content: center;
-  font-size: 18px;
+  max-width: min(520px, 48vw);
+  justify-content: flex-end;
+  font-size: 14px;
   font-weight: 700;
 }
 

@@ -28,7 +28,17 @@ export function GameScreen() {
       <div className="top-overlay">
         <DebugOverlay debug={debug} />
         <TimerOverlay />
-        <ResourceOverlay wood={debug.wood} ore={debug.ore} />
+        <ResourceOverlay
+          wood={debug.wood}
+          ore={debug.ore}
+          cartHp={debug.cartHp}
+          cartMaxHp={debug.cartMaxHp}
+          livingWarriors={debug.livingWarriors}
+          totalWarriors={debug.totalWarriors}
+          livingGatherers={debug.livingGatherers}
+          totalGatherers={debug.totalGatherers}
+          activeWolves={debug.activeWolves}
+        />
       </div>
     </main>
   );
