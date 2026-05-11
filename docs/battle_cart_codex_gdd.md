@@ -274,7 +274,7 @@ Hired warriors are added to the next run and use generated extra formation slots
 | `warriorHp` | Warrior HP +1 | TODO | 4 ore |
 | `warriorDamage` | Warrior damage +1 | TODO | 4 ore |
 | `warriorAttackSpeed` | Warrior attack speed +1/sec | TODO | 4 ore |
-| `warriorRegeneration` | Warrior regeneration +1/sec | TODO | 6 ore |
+| `warriorRegeneration` | Warrior regeneration +0.5 HP/sec | TODO | 6 ore |
 | `hireWarrior` | Warrior count +1 | TODO | 8 ore |
 
 ### Warrior Regeneration Formula
@@ -323,7 +323,7 @@ Hired gatherers are added to the next run and use generated extra formation slot
 |---|---|---:|---|
 | `gathererGathering` | Gathering rate +1/sec | TODO | 4 wood |
 | `gathererHp` | Gatherer HP +1 | TODO | 4 wood |
-| `gathererRegeneration` | Gatherer regeneration +1/sec | TODO | 6 wood |
+| `gathererRegeneration` | Gatherer regeneration +0.5 HP/sec | TODO | 6 wood |
 | `hireGatherer` | Gatherer count +1 | TODO | 8 wood |
 
 ### Gatherer Regeneration Formula
