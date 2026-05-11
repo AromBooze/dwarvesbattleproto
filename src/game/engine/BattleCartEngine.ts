@@ -9,6 +9,7 @@ import { WORLD_SCROLL_SECONDS_PER_SCREEN } from "../../config/balance/run";
 import { gathererFormation, warriorFormation } from "../entities/formation";
 import { loadSprites } from "../rendering/loadSprites";
 import { spriteManifest } from "../rendering/spriteManifest";
+import { SpawnSystem } from "../systems/SpawnSystem";
 import type { DebugState } from "../state/debugState";
 import type { SpriteTextureMap } from "../../types/sprites";
 
@@ -20,9 +21,11 @@ export class BattleCartEngine {
   private readonly app = new Application();
   private readonly stageRoot = new Container();
   private readonly grid = new Graphics();
+  private readonly worldLayer = new Container();
   private readonly spritesLayer = new Container();
   private readonly onDebug: DebugListener;
   private textures: SpriteTextureMap | null = null;
+  private spawnSystem: SpawnSystem | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private cartSprite: Sprite | null = null;
   private warriorSprites: Sprite[] = [];
@@ -57,13 +60,14 @@ export class BattleCartEngine {
 
     this.host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.stageRoot);
-    this.stageRoot.addChild(this.grid, this.spritesLayer);
+    this.stageRoot.addChild(this.grid, this.worldLayer, this.spritesLayer);
 
     this.textures = await loadSprites();
     if (this.destroyed) {
       return;
     }
 
+    this.spawnSystem = new SpawnSystem(this.worldLayer, this.textures);
     this.createStaticScene();
     this.resizeObserver = new ResizeObserver(() => this.layoutScene());
     this.resizeObserver.observe(this.host);
@@ -75,6 +79,8 @@ export class BattleCartEngine {
     this.destroyed = true;
     this.resizeObserver?.disconnect();
     this.app.ticker?.remove(this.tick, this);
+    this.spawnSystem?.destroy();
+    this.spawnSystem = null;
 
     if (this.app.renderer) {
       this.app.destroy(true, { children: true });
@@ -87,6 +93,10 @@ export class BattleCartEngine {
     this.scrollOffset = (this.scrollOffset + scrollSpeed * deltaSeconds) % GRID_SIZE;
 
     this.drawGrid();
+    this.spawnSystem?.update(deltaSeconds, scrollSpeed, {
+      width: this.app.screen.width,
+      height: this.app.screen.height,
+    });
     this.updateFps(deltaSeconds);
     this.publishDebug(scrollSpeed);
   }
@@ -184,12 +194,18 @@ export class BattleCartEngine {
   }
 
   private publishDebug(scrollSpeed: number) {
+    const spawnDebug = this.spawnSystem?.getDebugState();
+
     this.onDebug({
       fps: this.fps,
       width: Math.round(this.app.screen.width),
       height: Math.round(this.app.screen.height),
       scrollSpeed: Math.round(scrollSpeed),
       loadedSprites: this.textures ? spriteManifest.length : 0,
+      activeResources: spawnDebug?.activeResources ?? 0,
+      activeWolves: spawnDebug?.activeWolves ?? 0,
+      nextResourceSpawn: spawnDebug?.nextResourceSpawn ?? 0,
+      nextWolfSpawn: spawnDebug?.nextWolfSpawn ?? 0,
     });
   }
 }

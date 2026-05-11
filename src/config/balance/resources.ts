@@ -1,0 +1,4 @@
+export const RESOURCE_SPAWN_INTERVAL_SECONDS = 4;
+export const RESOURCE_AMOUNT_MIN = 1;
+export const RESOURCE_AMOUNT_MAX = 10;
+export const WOOD_SPAWN_CHANCE = 0.5;

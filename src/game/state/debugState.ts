@@ -4,6 +4,10 @@ export type DebugState = {
   height: number;
   scrollSpeed: number;
   loadedSprites: number;
+  activeResources: number;
+  activeWolves: number;
+  nextResourceSpawn: number;
+  nextWolfSpawn: number;
 };
 
 export const defaultDebugState: DebugState = {
@@ -12,4 +16,8 @@ export const defaultDebugState: DebugState = {
   height: 0,
   scrollSpeed: 0,
   loadedSprites: 0,
+  activeResources: 0,
+  activeWolves: 0,
+  nextResourceSpawn: 0,
+  nextWolfSpawn: 0,
 };

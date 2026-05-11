@@ -10,7 +10,11 @@ export function DebugOverlay({ debug }: DebugOverlayProps) {
       {`FPS ${debug.fps}
 Resolution ${debug.width}x${debug.height}
 Scroll speed ${debug.scrollSpeed}px/s
-Loaded sprites ${debug.loadedSprites}`}
+Loaded sprites ${debug.loadedSprites}
+Resources ${debug.activeResources}
+Wolves ${debug.activeWolves}
+Next resource ${debug.nextResourceSpawn.toFixed(1)}s
+Next wolf ${debug.nextWolfSpawn.toFixed(1)}s`}
     </div>
   );
 }
